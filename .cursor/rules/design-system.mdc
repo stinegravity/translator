@@ -1,0 +1,58 @@
+---
+description: Design system - dark theme only, dark/white/grey/blue palette, no emojis, no focus highlights
+globs: "**/*.css,**/*.tsx,**/*.jsx"
+alwaysApply: false
+---
+
+# Design System
+
+## Color Palette (Strict)
+
+Use only these colors. No other colors allowed.
+
+| Role | Hex | Usage |
+|------|-----|-------|
+| Dark | #0a0a0a | Page background |
+| Dark | #111111 | Card/panel background |
+| Dark | #1a1a1a | Input, button background |
+| Grey | #333333 | Borders, dividers |
+| Grey | #555555 | Secondary borders |
+| Grey | #888888 | Secondary text, muted |
+| Grey | #aaaaaa | Tertiary text |
+| White | #ffffff | Primary text |
+| Blue | #3b82f6 | Highlight, active state, links |
+
+## Rules
+
+- **Dark theme only**: No light mode. Remove `prefers-color-scheme: light` media queries.
+- **No emojis**: Do not use emoji characters in UI text or copy.
+- **No focus highlight**: Remove all `:focus`, `:focus-visible`, `outline` styles. Use `outline: none` where needed.
+- **No colored icons**: Icons must use dark, white, or grey. Blue only for active/highlight state.
+- **No other colors**: No red, green, yellow, purple, etc. Only dark, white, grey, blue.
+
+## CSS Variables
+
+```css
+:root {
+  --color-bg: #0a0a0a;
+  --color-surface: #111111;
+  --color-input: #1a1a1a;
+  --color-border: #333333;
+  --color-border-light: #555555;
+  --color-muted: #888888;
+  --color-text: #ffffff;
+  --color-highlight: #3b82f6;
+}
+```
+
+## Examples
+
+```css
+/* Bad */
+button:focus { outline: 2px solid blue; }
+.error { color: red; }
+
+/* Good */
+button:focus { outline: none; }
+.error { color: #888888; }
+```
