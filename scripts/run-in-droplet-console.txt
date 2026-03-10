@@ -1,0 +1,13 @@
+# Copy everything below this line and paste into Droplet Console (as root)
+# ============================================================
+
+mkdir -p /home/keyerease/.ssh
+echo "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHKD7sBAyayZ9kgpVr1SiOIfyxjfl5D4bZcFyfcDVqgn clubexpress-droplet-20251201" > /home/keyerease/.ssh/authorized_keys
+echo "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFw+bA1AkcjIDlXaIuRC6zHksZbBgPH9fAIsDLD3gv7i gravitidev@clubexpress-test-server-20251201" >> /home/keyerease/.ssh/authorized_keys
+echo "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHZxMn2I0Ijh1jQVbyf94WSFzWtY08YyaxenAyLKMLDi biney.augustine01@gmail.com" >> /home/keyerease/.ssh/authorized_keys
+chmod 700 /home/keyerease/.ssh
+chmod 600 /home/keyerease/.ssh/authorized_keys
+chown -R keyerease:keyerease /home/keyerease
+mkdir -p /home/keyerease/kyerease-app
+chown keyerease:keyerease /home/keyerease/kyerease-app
+echo done

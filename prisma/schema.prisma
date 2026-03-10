@@ -1,9 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -12,12 +6,301 @@ datasource db {
   provider = "postgresql"
 }
 
+enum Tier {
+  FREE
+  PRO
+  TEAM
+  ENTERPRISE
+}
+
 model TranslationHistory {
+  id           String                 @id @default(cuid())
+  source       String
+  target       String
+  input        String
+  output       String
+  mode         String
+  createdAt    DateTime               @default(now())
+  archivedAt   DateTime?
+  audioAssetId String?
+  transcribed  String?
+  userId       String?
+  folderId     String?
+  conversationId String?
+  favorites    Favorite[]
+  segments     TranscriptionSegment[]
+  audioAsset   AudioAsset?            @relation(fields: [audioAssetId], references: [id])
+  user         User?                  @relation(fields: [userId], references: [id])
+  folder       Folder?                @relation(fields: [folderId], references: [id], onDelete: SetNull)
+  conversation Conversation?          @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  exports      ExportJob[]
+
+  feedback     TranslationFeedback[]
+
+  @@index([userId, createdAt])
+  @@index([archivedAt, createdAt])
+  @@index([audioAssetId])
+  @@index([folderId])
+  @@index([conversationId, createdAt])
+}
+
+model TranslationFeedback {
+  id              String             @id @default(cuid())
+  historyId       String
+  reviewerEmail   String?
+  rating          Int                // 1=bad, 2=ok, 3=good
+  correction      String?            // the human's corrected translation
+  dialect         String?            // which dialect was being reviewed
+  domain          String?            // healthcare/legal/news/casual
+  notes           String?            // free-form reviewer notes
+  source          String             // original input text
+  aiOutput        String             // what the AI produced
+  createdAt       DateTime           @default(now())
+  history         TranslationHistory @relation(fields: [historyId], references: [id], onDelete: Cascade)
+
+  @@index([historyId])
+  @@index([rating, createdAt])
+  @@index([dialect, rating])
+  @@index([reviewerEmail, createdAt])
+}
+
+model Folder {
+  id        String               @id @default(cuid())
+  name      String
+  userId    String?
+  createdAt DateTime             @default(now())
+  updatedAt DateTime             @updatedAt
+  user      User?                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  histories TranslationHistory[]
+  conversations Conversation[]
+
+  @@unique([userId, name])
+  @@index([userId, createdAt])
+}
+
+model Conversation {
+  id             String               @id @default(cuid())
+  title          String               @default("New conversation")
+  userId         String?
+  folderId       String?
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+  lastActivityAt DateTime             @default(now())
+  user           User?                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  folder         Folder?              @relation(fields: [folderId], references: [id], onDelete: SetNull)
+  histories      TranslationHistory[]
+  exports        ExportJob[]
+
+  @@index([userId, updatedAt])
+  @@index([folderId, updatedAt])
+  @@index([lastActivityAt])
+}
+
+model TranscriptionSegment {
+  id             String             @id @default(cuid())
+  historyId      String
+  segmentIndex   Int
+  speaker        String
+  start          Float
+  end            Float
+  text           String
+  translatedText String?
+  createdAt      DateTime           @default(now())
+  history        TranslationHistory @relation(fields: [historyId], references: [id], onDelete: Cascade)
+
+  @@unique([historyId, segmentIndex])
+  @@index([historyId, start])
+}
+
+model AudioAsset {
+  id              String               @id @default(cuid())
+  userId          String?
+  originalName    String
+  storedName      String               @unique
+  mimeType        String
+  sizeBytes       Int?
+  storagePath     String
+  durationSeconds Float?
+  createdAt       DateTime             @default(now())
+  user            User?                @relation(fields: [userId], references: [id])
+  histories       TranslationHistory[]
+
+  @@index([userId, createdAt])
+}
+
+model User {
+  id            String               @id @default(cuid())
+  email         String               @unique
+  name          String?
+  emailVerified Boolean              @default(false)
+  image         String?
+  tier          Tier                 @default(FREE)
+  tierExpiresAt DateTime?
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+  audioAssets   AudioAsset[]
+  favorites     Favorite[]
+  sessions      Session[]
+  accounts      Account[]
+  histories     TranslationHistory[]
+  settings      UserSettings?
+  folders       Folder[]
+  conversations Conversation[]
+  subscriptions Subscription[]
+  usageRecords  UsageRecord[]
+  exports       ExportJob[]
+}
+
+model ExportJob {
+  id             String              @id @default(cuid())
+  userId         String
+  historyId      String?
+  conversationId String?
+  format         String
+  fileName       String
+  mimeType       String
+  storagePath    String
+  sizeBytes      Int
+  createdAt      DateTime            @default(now())
+  completedAt    DateTime?
+  user           User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  history        TranslationHistory? @relation(fields: [historyId], references: [id], onDelete: SetNull)
+  conversation   Conversation?       @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@index([historyId, createdAt])
+  @@index([conversationId, createdAt])
+}
+
+model Session {
   id        String   @id @default(cuid())
-  source    String
-  target    String
-  input     String
-  output    String
-  mode      String   // "text" | "audio"
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  ipAddress String?
+  userAgent String?
   createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@index([token])
+}
+
+model Favorite {
+  id        String             @id @default(cuid())
+  userId    String
+  historyId String
+  createdAt DateTime           @default(now())
+  history   TranslationHistory @relation(fields: [historyId], references: [id], onDelete: Cascade)
+  user      User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, historyId])
+  @@index([historyId])
+}
+
+model UserSettings {
+  id                 String   @id @default(cuid())
+  userId             String   @unique
+  preferredDirection String?
+  preferredInputMode String?
+  diarizationEnabled Boolean  @default(false)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  action     String
+  userId     String?
+  userEmail  String?
+  resourceId String?
+  ip         String?
+  method     String
+  path       String
+  statusCode Int
+  durationMs Int?
+  metadata   Json?
+  createdAt  DateTime @default(now())
+
+  @@index([action, createdAt])
+  @@index([userId, createdAt])
+  @@index([createdAt])
+}
+
+model AnalyticsEvent {
+  id        String   @id @default(cuid())
+  eventType String
+  userId    String?
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  @@index([eventType, createdAt])
+  @@index([userId, createdAt])
+  @@index([createdAt])
+}
+
+model Account {
+  id                    String    @id @default(cuid())
+  userId                String
+  accountId             String
+  providerId            String
+  accessToken           String?
+  refreshToken          String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  idToken               String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Verification {
+  id         String   @id @default(cuid())
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([identifier])
+}
+
+model Subscription {
+  id                 String    @id @default(cuid())
+  userId             String
+  tier               Tier      @default(FREE)
+  status             String    @default("active")
+  currentPeriodStart DateTime  @default(now())
+  currentPeriodEnd   DateTime?
+  paymentProvider    String?
+  externalId         String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  user               User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([status])
+}
+
+model UsageRecord {
+  id                 String   @id @default(cuid())
+  userId             String
+  date               DateTime @db.Date
+  charsTranslated    Int      @default(0)
+  transcriptionCount Int      @default(0)
+  ttsCount           Int      @default(0)
+  audioMinutes       Float    @default(0)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, date])
+  @@index([userId, date])
 }

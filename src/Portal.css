@@ -1,0 +1,249 @@
+.portal-container {
+  min-height: 100vh;
+  padding: 2rem 1.5rem;
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+.portal-header {
+  margin-bottom: 2.5rem;
+}
+
+.portal-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--color-muted);
+  text-decoration: none;
+  font-size: 0.9rem;
+  margin-bottom: 1.5rem;
+  transition: color 0.2s;
+}
+
+.portal-back:hover {
+  color: var(--color-highlight);
+}
+
+.portal-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+
+.portal-brand h1 {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.portal-subtitle {
+  font-size: 0.95rem;
+  color: var(--color-muted);
+}
+
+.portal-main {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.portal-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1.5rem;
+}
+
+.portal-section {
+  padding: 1.5rem;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.portal-stat-card {
+  min-height: 170px;
+}
+
+.portal-section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.25rem;
+}
+
+.portal-section h2 {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--color-text);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.portal-refresh {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.9rem;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--color-text);
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.portal-refresh:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.15);
+}
+
+.portal-refresh:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.portal-health-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.portal-health-badge {
+  grid-column: 1 / -1;
+  padding: 1rem 1.25rem;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.portal-health-badge.ok {
+  border-left: 4px solid #22c55e;
+}
+
+.portal-health-badge.error {
+  border-left: 4px solid #ef4444;
+}
+
+.portal-health-card {
+  padding: 0.9rem 1rem;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.portal-health-label {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--color-muted);
+}
+
+.portal-health-card strong,
+.portal-health-badge strong {
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.portal-health-card .status-ok,
+.portal-health-badge.ok strong {
+  color: #4ade80;
+}
+
+.portal-health-card .status-error,
+.portal-health-badge.error strong {
+  color: #f87171;
+}
+
+.portal-timestamp {
+  grid-column: 1 / -1;
+  font-size: 0.8rem;
+  color: var(--color-tertiary);
+  margin-top: 0.5rem;
+}
+
+.portal-empty {
+  grid-column: 1 / -1;
+  color: var(--color-muted);
+  font-size: 0.95rem;
+}
+
+.portal-identity-name,
+.portal-kpi {
+  display: block;
+  font-size: 2rem;
+  line-height: 1;
+  margin: 0.5rem 0 0.35rem;
+}
+
+.portal-identity-email,
+.portal-subcopy {
+  color: var(--color-muted);
+  font-size: 0.95rem;
+}
+
+.portal-metric-list {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.portal-metric-list div {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  color: var(--color-text);
+}
+
+.portal-subsection-header {
+  margin-top: 1.5rem;
+}
+
+.portal-request-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.portal-request-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.85rem 1rem;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.portal-request-row strong {
+  color: var(--color-text);
+}
+
+.portal-request-row span {
+  color: var(--color-muted);
+  font-size: 0.88rem;
+}
+
+.portal-request-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.75rem;
+  white-space: nowrap;
+}
+
+@media (max-width: 720px) {
+  .portal-grid,
+  .portal-health-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .portal-container {
+    padding: 1.5rem 1rem 2rem;
+  }
+}

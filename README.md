@@ -24,8 +24,15 @@ A simple web app to translate between Twi and English. Supports **text** and **a
    ```
    - `GOOGLE_TRANSLATE_API_KEY` – [Google Cloud Console](https://console.cloud.google.com/apis/credentials) (enable Cloud Translation API)
    - `OPENAI_API_KEY` – [OpenAI](https://platform.openai.com/api-keys) (for Whisper transcription)
+   - `DATABASE_URL` – direct PostgreSQL connection string, for example `postgresql://postgres:postgres@localhost:5432/translator_dev?sslmode=disable`
 
-3. **Run the app**
+3. **Prepare the database**
+   ```bash
+   npm run db:migrate
+   ```
+   This project uses direct PostgreSQL on `localhost:5432`, not `prisma dev`.
+
+4. **Run the app**
 
    **Development** (frontend + backend in separate terminals):
    ```bash
@@ -51,8 +58,8 @@ A simple web app to translate between Twi and English. Supports **text** and **a
 | `npm run server`| Start Express API server             |
 | `npm run build`| Build frontend for production        |
 | `npm start`    | Build + serve (production mode)      |
-| `npm run db:dev`   | Start Prisma Postgres (local)       |
-| `npm run db:migrate` | Run migrations                   |
+| `npm run db:migrate` | Apply Prisma migrations to your configured PostgreSQL database |
+| `npm run db:status` | Check Prisma migration status     |
 
 ## Design System
 

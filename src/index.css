@@ -1,68 +1,120 @@
 :root {
-  font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
+  font-family: 'Outfit', system-ui, -apple-system, sans-serif;
   line-height: 1.5;
   font-weight: 400;
 
-  --color-bg: #0a0a0a;
-  --color-surface: #111111;
-  --color-input: #1a1a1a;
-  --color-border: #333333;
-  --color-border-light: #555555;
-  --color-muted: #888888;
-  --color-text: #ffffff;
-  --color-highlight: #3b82f6;
+  /* Strict Design System Colors */
+  --color-bg: #050505;
+  --color-surface: #0a0a0a;
+  --color-input: #121212;
+  --color-border: #1a1a1a;
+  --color-border-light: #222222;
+  --color-muted: #71717a;
+  --color-tertiary: #52525b;
+  --color-text: #fafafa;
+  --color-highlight: #4f46e5;
+  --color-highlight-rgb: 79, 70, 229;
+
+  /* Feedback Colors */
+  --feedback-good: #4ade80;
+  --feedback-ok: #fbbf24;
+  --feedback-bad: #f87171;
 
   color-scheme: dark;
   color: var(--color-text);
   background-color: var(--color-bg);
 
-  font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-*:focus,
-*:focus-visible {
-  outline: none;
-}
-
-a {
-  font-weight: 500;
-  color: var(--color-highlight);
-  text-decoration: inherit;
-}
-
-a:hover {
-  color: var(--color-highlight);
-  opacity: 0.9;
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  outline: none !important;
 }
 
 body {
-  margin: 0;
-  display: flex;
-  place-items: center;
-  min-width: 320px;
   min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow-x: hidden;
+  background-color: var(--color-bg);
+  position: relative;
 }
 
-h1 {
-  font-size: 3.2em;
-  line-height: 1.1;
+body::before {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 140%;
+  height: 80vh;
+  background: radial-gradient(
+    ellipse 80% 50% at 50% -20%,
+    rgba(var(--color-highlight-rgb), 0.2) 0%,
+    rgba(var(--color-highlight-rgb), 0.08) 40%,
+    transparent 80%
+  );
+  filter: blur(80px);
+  pointer-events: none;
+  z-index: 0;
 }
 
-button {
-  border-radius: 8px;
-  border: 1px solid var(--color-border);
-  padding: 0.6em 1.2em;
-  font-size: 1em;
-  font-weight: 500;
-  font-family: inherit;
-  background-color: var(--color-input);
-  color: var(--color-text);
-  cursor: pointer;
+body::after {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-image: url('/adinkra-bg.png');
+  background-size: 300px;
+  background-repeat: repeat;
+  opacity: 0.08;
+  pointer-events: none;
+  z-index: -1;
+  mix-blend-mode: overlay;
 }
 
-button:hover {
-  border-color: var(--color-highlight);
+#root {
+  width: 100%;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  z-index: 1;
+}
+
+/* Premium Animations (Subtle) */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-bg);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-border-light);
+}
+
+/* Selection */
+::selection {
+  background: rgba(59, 130, 246, 0.3);
+  color: #fff;
 }
