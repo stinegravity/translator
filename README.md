@@ -34,15 +34,19 @@ A simple web app to translate between Twi and English. Supports **text** and **a
 
 4. **Run the app**
 
-   **Development** (frontend + backend in separate terminals):
+   **Development** (frontend + portal + backend in separate terminals):
    ```bash
-   # Terminal 1 – frontend
+   # Terminal 1 – main frontend
    npm run dev
 
-   # Terminal 2 – backend
+   # Terminal 2 – portal frontend
+   npm run dev:portal
+
+   # Terminal 3 – backend
    npm run server
    ```
    Open http://localhost:5173
+   Portal runs at http://localhost:5174 and is restricted to internal ops accounts with `portalAccess=true`
 
    **Production** (single command, serves built app):
    ```bash
@@ -55,8 +59,10 @@ A simple web app to translate between Twi and English. Supports **text** and **a
 | Command        | Description                          |
 |----------------|--------------------------------------|
 | `npm run dev`  | Start Vite dev server (frontend)     |
+| `npm run dev:portal` | Start separate portal frontend on port 5174 |
 | `npm run server`| Start Express API server             |
 | `npm run build`| Build frontend for production        |
+| `npm run build:portal` | Build separate portal frontend  |
 | `npm start`    | Build + serve (production mode)      |
 | `npm run db:migrate` | Apply Prisma migrations to your configured PostgreSQL database |
 | `npm run db:status` | Check Prisma migration status     |

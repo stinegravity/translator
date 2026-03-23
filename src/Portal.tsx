@@ -1,16 +1,22 @@
-import { Activity, ArrowLeft, FolderKanban, Heart, RefreshCcw, Sparkles, Waves } from 'lucide-react';
+import { FolderKanban, Heart, RefreshCcw, Sparkles, Waves } from 'lucide-react';
 import { useMemo } from 'react';
 import { useFavorites } from './hooks/useFavorites';
 import { useFolders } from './hooks/useFolders';
 import { useHealth } from './hooks/useHealth';
 import { useHistory } from './hooks/useHistory';
 import { usePerformanceMetrics } from './hooks/usePerformanceMetrics';
-import { useUserProfile } from './hooks/useUserProfile';
 import './Portal.css';
 
-export function Portal() {
-  const { profile, hasIdentity } = useUserProfile();
-  const { status, loading, refresh, error } = useHealth();
+interface PortalProps {
+  user?: {
+    email: string;
+    name?: string;
+  } | null;
+}
+
+export function Portal({ user }: PortalProps) {
+  const hasIdentity = !!user;
+  const { status, loading, refresh } = useHealth();
   const { items: historyItems } = useHistory(50, hasIdentity);
   const { items: favorites } = useFavorites(hasIdentity);
   const { folders } = useFolders(hasIdentity);
@@ -29,94 +35,107 @@ export function Portal() {
   }, [favorites.length, folders.length, historyItems]);
 
   return (
-    <div className="portal-container">
-      <header className="portal-header">
-        <a href="/" className="portal-back">
-          <ArrowLeft size={20} />
-          Back to KyereAse
-        </a>
-        <div className="portal-brand">
-          <Activity size={28} color="var(--color-highlight)" />
-          <h1>Portal Dashboard</h1>
-        </div>
-        <p className="portal-subtitle">Operational visibility for KyereAse</p>
-      </header>
-
+    <>
       <main className="portal-main">
-        <section className="portal-grid">
-          <article className="portal-section portal-stat-card">
-            <span className="portal-health-label">Identity</span>
+        <section className="portal-bento-grid">
+          {/* Bento Card: Identity */}
+          <article className="portal-section portal-identity-card">
+            <span className="portal-health-label">Linguist Identity</span>
             {hasIdentity ? (
-              <>
-                <strong className="portal-identity-name">{profile.name || 'Unnamed profile'}</strong>
-                <p className="portal-identity-email">{profile.email}</p>
-              </>
+              <div className="portal-identity-content">
+                <strong className="portal-identity-name">{user?.name || 'Unnamed profile'}</strong>
+                <p className="portal-identity-email">{user?.email}</p>
+              </div>
             ) : (
-              <p className="portal-empty">No local profile configured. Add one in the translator settings.</p>
+              <p className="portal-empty">No authenticated user detected.</p>
             )}
           </article>
 
-          <article className="portal-section portal-stat-card">
+          {/* Bento Card: Saved Library */}
+          <article className="portal-section portal-library-card">
             <span className="portal-health-label">Saved Library</span>
             <div className="portal-metric-list">
-              <div><Sparkles size={15} /> <span>{metrics.totalHistory} history items</span></div>
-              <div><Heart size={15} /> <span>{metrics.favorites} favorites</span></div>
-              <div><FolderKanban size={15} /> <span>{metrics.folders} folders</span></div>
-              <div><Waves size={15} /> <span>{metrics.audioCount} audio entries</span></div>
+              <div className="portal-metric-item">
+                <Sparkles size={16} color="var(--color-highlight)" /> 
+                <span>{metrics.totalHistory} items</span>
+              </div>
+              <div className="portal-metric-item">
+                <Heart size={16} color="#ef4444" /> 
+                <span>{metrics.favorites} faves</span>
+              </div>
+              <div className="portal-metric-item">
+                <FolderKanban size={16} color="#eab308" /> 
+                <span>{metrics.folders} folders</span>
+              </div>
+              <div className="portal-metric-item">
+                <Waves size={16} color="#3b82f6" /> 
+                <span>{metrics.audioCount} audio</span>
+              </div>
             </div>
+          </article>
+
+          {/* Bento Card: Overall Health */}
+          <article className="portal-section portal-health-card-main">
+            <div className="portal-section-header">
+              <span className="portal-health-label">System Integrity</span>
+              <button
+                type="button"
+                className="portal-mini-refresh"
+                onClick={() => void refresh()}
+                disabled={loading}
+              >
+                <RefreshCcw size={14} className={loading ? 'animate-spin' : ''} />
+              </button>
+            </div>
+            {status ? (
+              <div className="portal-health-large">
+                <strong className={status.ok ? 'status-ok' : 'status-error'}>
+                  {status.ok ? 'SYSTEM OPERATIONAL' : 'DEGRADED PERFORMANCE'}
+                </strong>
+                <p className="portal-timestamp">Last check: {new Date(status.timestamp).toLocaleTimeString()}</p>
+              </div>
+            ) : (
+              <p className="portal-empty">{loading ? 'Scanning...' : 'Awaiting data'}</p>
+            )}
           </article>
         </section>
 
         <section className="portal-section">
           <div className="portal-section-header">
-            <h2>System Health</h2>
-            <button
-              type="button"
-              className="portal-refresh"
-              onClick={() => void refresh()}
-              disabled={loading}
-              title="Refresh"
-            >
-              <RefreshCcw size={18} className={loading ? 'animate-spin' : ''} />
-              Refresh
-            </button>
+            <h2>Detailed Subsystems</h2>
           </div>
-          <div className="portal-health-grid">
-            {error ? <p className="portal-empty">{error}</p> : null}
-            {status ? (
-              <>
-                <div className={`portal-health-badge ${status.ok ? 'ok' : 'error'}`}>
-                  <span className="portal-health-label">Overall</span>
-                  <strong>{status.ok ? 'Healthy' : 'Degraded'}</strong>
-                </div>
-                {Object.entries(status.checks).map(([key, value]) => (
-                  <div key={key} className="portal-health-card">
-                    <span className="portal-health-label">{key}</span>
-                    <strong className={value === 'ok' || value === 'ready' ? 'status-ok' : 'status-error'}>
-                      {value}
-                    </strong>
-                  </div>
-                ))}
-                <p className="portal-timestamp">Last checked: {new Date(status.timestamp).toLocaleString()}</p>
-              </>
-            ) : (
-              <p className="portal-empty">{loading ? 'Loading...' : 'No health data yet.'}</p>
-            )}
+          <div className="portal-subsystems-grid">
+            {status?.checks && Object.entries(status.checks).map(([key, value]) => (
+              <div key={key} className="portal-health-card">
+                <span className="portal-health-label">{key}</span>
+                <strong className={value === 'ok' || value === 'ready' ? 'status-ok' : 'status-error'}>
+                  {value}
+                </strong>
+              </div>
+            ))}
           </div>
         </section>
 
-        <section className="portal-grid">
-          <article className="portal-section portal-stat-card">
-            <span className="portal-health-label">Text Volume</span>
-            <strong className="portal-kpi">{metrics.textCount}</strong>
-            <p className="portal-subcopy">Saved text translations</p>
+        <section className="portal-bento-grid">
+          <article className="portal-section portal-stat-slim">
+            <span className="portal-health-label">Text Load</span>
+            <div className="portal-kpi-row">
+              <strong className="portal-kpi-small">{metrics.textCount}</strong>
+              <span className="portal-subcopy-mini">entries</span>
+            </div>
           </article>
-          <article className="portal-section portal-stat-card">
-            <span className="portal-health-label">Audio Volume</span>
-            <strong className="portal-kpi">{metrics.audioCount}</strong>
-            <p className="portal-subcopy">Saved audio transcription jobs</p>
+          <article className="portal-section portal-stat-slim">
+            <span className="portal-health-label">Audio Load</span>
+            <div className="portal-kpi-row">
+              <strong className="portal-kpi-small">{metrics.audioCount}</strong>
+              <span className="portal-subcopy-mini">jobs</span>
+            </div>
           </article>
         </section>
+
+
+
+
 
         <section className="portal-section">
           <div className="portal-section-header">
@@ -172,6 +191,6 @@ export function Portal() {
         .animate-spin { animation: spin 1s linear infinite; }
         @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
       `}</style>
-    </div>
+    </>
   );
 }

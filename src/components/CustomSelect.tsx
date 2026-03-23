@@ -2,14 +2,25 @@ import { useState, useRef, useEffect } from 'react';
 import { ChevronDown } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
-interface CustomSelectProps {
-  value: string;
-  onChange: (value: string) => void;
-  options: string[];
+interface CustomSelectProps<T extends string | number> {
+  value: T;
+  onChange: (value: T) => void;
+  options: T[] | { label: string; value: T }[];
   label: string;
+  className?: string;
+  disabled?: boolean;
+  layout?: 'horizontal' | 'vertical';
 }
 
-export function CustomSelect({ value, onChange, options, label }: CustomSelectProps) {
+export function CustomSelect<T extends string | number>({ 
+  value, 
+  onChange, 
+  options, 
+  label,
+  className,
+  disabled,
+  layout = 'horizontal'
+}: CustomSelectProps<T>) {
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -23,18 +34,36 @@ export function CustomSelect({ value, onChange, options, label }: CustomSelectPr
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  const getLabel = (option: T | { label: string; value: T }) => {
+    if (typeof option === 'object' && option !== null) {
+      return (option as { label: string; value: T }).label;
+    }
+    return String(option);
+  };
+
+  const getValue = (option: T | { label: string; value: T }) => {
+    if (typeof option === 'object' && option !== null) {
+      return (option as { label: string; value: T }).value;
+    }
+    return option as T;
+  };
+
+  const displayValue = options.find(opt => getValue(opt) === value);
+  const displayText = displayValue ? getLabel(displayValue) : String(value);
+
   return (
-    <div className="custom-select-container" ref={containerRef}>
-      <span className="select-label">{label}</span>
+    <div className={`custom-select-container ${layout} ${className || ''} ${disabled ? 'disabled' : ''}`} ref={containerRef}>
+      {label && <span className="select-label">{label}</span>}
       <div className="select-wrapper">
         <button
           type="button"
           className={`select-trigger ${isOpen ? 'active' : ''}`}
-          onClick={() => setIsOpen(!isOpen)}
+          onClick={() => !disabled && setIsOpen(!isOpen)}
           aria-haspopup="listbox"
           aria-expanded={isOpen}
+          disabled={disabled}
         >
-          <span>{value}</span>
+          <span>{displayText}</span>
           <motion.div
             animate={{ rotate: isOpen ? 180 : 0 }}
             transition={{ duration: 0.2 }}
@@ -53,20 +82,26 @@ export function CustomSelect({ value, onChange, options, label }: CustomSelectPr
               transition={{ duration: 0.2 }}
               role="listbox"
             >
-              {options.map((option) => (
-                <li
-                  key={option}
-                  className={`select-option ${option === value ? 'selected' : ''}`}
-                  onClick={() => {
-                    onChange(option);
-                    setIsOpen(false);
-                  }}
-                  role="option"
-                  aria-selected={option === value}
-                >
-                  {option}
-                </li>
-              ))}
+              {options.map((option, index) => {
+                const optValue = getValue(option);
+                const optLabel = getLabel(option);
+                const isSelected = optValue === value;
+                
+                return (
+                  <li
+                    key={typeof optValue === 'string' ? optValue : `opt-${index}`}
+                    className={`select-option ${isSelected ? 'selected' : ''}`}
+                    onClick={() => {
+                      onChange(optValue);
+                      setIsOpen(false);
+                    }}
+                    role="option"
+                    aria-selected={isSelected}
+                  >
+                    {optLabel}
+                  </li>
+                );
+              })}
             </motion.ul>
           )}
         </AnimatePresence>

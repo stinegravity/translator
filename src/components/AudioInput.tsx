@@ -4,9 +4,18 @@ import { Mic, Square, Upload, Scissors, Play, Pause, Link2 } from 'lucide-react'
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import WaveSurfer from 'wavesurfer.js';
+import RegionsPlugin, { type Region } from 'wavesurfer.js/dist/plugins/regions.esm.js';
+import { RecordingVisualizer } from './RecordingVisualizer';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
+}
+
+function formatTime(seconds: number): string {
+  const m = Math.floor(seconds / 60);
+  const s = Math.floor(seconds % 60);
+  const ms = Math.floor((seconds % 1) * 10);
+  return `${m}:${s.toString().padStart(2, '0')}.${ms}`;
 }
 
 function formatDuration(seconds: number): string {
@@ -19,6 +28,7 @@ interface AudioInputProps {
   isRecording: boolean;
   recordingDuration?: number;
   loading: boolean;
+  loadingMessage?: string;
   canTrim?: boolean;
   youtubeUrl?: string;
   onYoutubeUrlChange?: (value: string) => void;
@@ -27,12 +37,14 @@ interface AudioInputProps {
   onStopRecording: () => void;
   onFileUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
   onSendTrimmed?: (blob: Blob) => void;
+  activeStream?: MediaStream;
 }
 
 export function AudioInput({
   isRecording,
   recordingDuration = 0,
   loading,
+  loadingMessage = 'Processing...',
   canTrim = false,
   youtubeUrl = '',
   onYoutubeUrlChange,
@@ -41,29 +53,39 @@ export function AudioInput({
   onStopRecording,
   onFileUpload,
   onSendTrimmed,
+  activeStream,
 }: AudioInputProps) {
   const waveRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WaveSurfer | null>(null);
+  const regionsRef = useRef<RegionsPlugin | null>(null);
+  const trimRegionRef = useRef<Region | null>(null);
   const [audioFile, setAudioFile] = useState<File | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [trimStart, setTrimStart] = useState(0);
-  const [trimEnd, setTrimEnd] = useState(100);
+  const [trimStartSec, setTrimStartSec] = useState(0);
+  const [trimEndSec, setTrimEndSec] = useState(0);
   const [duration, setDuration] = useState(0);
 
   const destroyWavesurfer = useCallback(() => {
+    trimRegionRef.current = null;
+    regionsRef.current = null;
     if (wsRef.current) {
       wsRef.current.destroy();
       wsRef.current = null;
     }
     setIsPlaying(false);
     setDuration(0);
-    setTrimStart(0);
-    setTrimEnd(100);
+    setTrimStartSec(0);
+    setTrimEndSec(0);
   }, []);
 
   useEffect(() => {
-    return () => destroyWavesurfer();
-  }, [destroyWavesurfer]);
+    return () => {
+      if (wsRef.current) {
+        wsRef.current.destroy();
+        wsRef.current = null;
+      }
+    };
+  }, []);
 
   const loadAudioForTrim = useCallback((file: File) => {
     destroyWavesurfer();
@@ -71,22 +93,45 @@ export function AudioInput({
 
     if (!waveRef.current) return;
 
+    const regions = RegionsPlugin.create();
+    regionsRef.current = regions;
+
     const ws = WaveSurfer.create({
       container: waveRef.current,
       waveColor: 'rgba(79, 70, 229, 0.4)',
       progressColor: 'rgba(79, 70, 229, 0.8)',
       cursorColor: 'var(--color-highlight)',
-      height: 80,
+      height: 100,
       barWidth: 2,
       barGap: 1,
       barRadius: 2,
       normalize: true,
       backend: 'WebAudio',
+      plugins: [regions],
     });
 
     ws.on('ready', () => {
-      setDuration(ws.getDuration());
+      const dur = ws.getDuration();
+      setDuration(dur);
+      // Create a default trim region spanning the full audio
+      const region = regions.addRegion({
+        start: 0,
+        end: dur,
+        color: 'rgba(99, 102, 241, 0.25)',
+        drag: true,
+        resize: true,
+        minLength: 0.5,
+      });
+      trimRegionRef.current = region;
+      setTrimStartSec(0);
+      setTrimEndSec(dur);
     });
+
+    regions.on('region-updated', (region) => {
+      setTrimStartSec(region.start);
+      setTrimEndSec(region.end);
+    });
+
     ws.on('play', () => setIsPlaying(true));
     ws.on('pause', () => setIsPlaying(false));
 
@@ -105,15 +150,15 @@ export function AudioInput({
   const handleTrimAndSend = async () => {
     if (!audioFile || !onSendTrimmed) return;
 
-    const ctx = new AudioContext();
-    const arrayBuf = await audioFile.arrayBuffer();
-    const audioBuffer = await ctx.decodeAudioData(arrayBuf);
-
-    const startSec = (trimStart / 100) * audioBuffer.duration;
-    const endSec = (trimEnd / 100) * audioBuffer.duration;
+    const startSec = trimStartSec;
+    const endSec = trimEndSec;
     const trimDuration = endSec - startSec;
 
     if (trimDuration < 0.5) return;
+
+    const ctx = new AudioContext();
+    const arrayBuf = await audioFile.arrayBuffer();
+    const audioBuffer = await ctx.decodeAudioData(arrayBuf);
 
     const offlineCtx = new OfflineAudioContext(
       audioBuffer.numberOfChannels,
@@ -140,10 +185,21 @@ export function AudioInput({
     setAudioFile(null);
   };
 
+  const previewSelection = () => {
+    if (!trimRegionRef.current) return;
+    trimRegionRef.current.play(true);
+  };
+
   const togglePlayback = () => {
     if (!wsRef.current) return;
-    wsRef.current.playPause();
+    if (isPlaying) {
+      wsRef.current.pause();
+    } else {
+      previewSelection();
+    }
   };
+
+  const trimSelectionDuration = trimEndSec - trimStartSec;
 
   if (canTrim && audioFile) {
     return (
@@ -157,44 +213,39 @@ export function AudioInput({
               {duration > 0 ? formatDuration(Math.round(duration)) : ''}
             </span>
           </div>
-          <div ref={waveRef} style={{ borderRadius: '12px', overflow: 'hidden', background: 'var(--color-surface)' }} />
-        </div>
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '1.25rem' }}>
-          <label style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem', flex: 1 }}>
-            <span style={{ fontSize: '0.78rem', color: 'var(--color-tertiary)' }}>Start {Math.round(trimStart)}%</span>
-            <input
-              type="range"
-              min={0}
-              max={100}
-              value={trimStart}
-              onChange={(e) => setTrimStart(Math.min(Number(e.target.value), trimEnd - 1))}
-              style={{ accentColor: 'var(--color-highlight)' }}
-            />
-          </label>
-          <label style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem', flex: 1 }}>
-            <span style={{ fontSize: '0.78rem', color: 'var(--color-tertiary)' }}>End {Math.round(trimEnd)}%</span>
-            <input
-              type="range"
-              min={0}
-              max={100}
-              value={trimEnd}
-              onChange={(e) => setTrimEnd(Math.max(Number(e.target.value), trimStart + 1))}
-              style={{ accentColor: 'var(--color-highlight)' }}
-            />
-          </label>
+          <div ref={waveRef} style={{ borderRadius: '12px', overflow: 'hidden', background: 'var(--color-surface)', cursor: 'crosshair' }} />
+          {duration > 0 && (
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.5rem', fontSize: '0.78rem', color: 'var(--color-tertiary)' }}>
+              <span>Selection: <strong style={{ color: 'var(--color-highlight)' }}>{formatTime(trimStartSec)}</strong> → <strong style={{ color: 'var(--color-highlight)' }}>{formatTime(trimEndSec)}</strong></span>
+              <span>Duration: <strong>{formatTime(trimSelectionDuration)}</strong></span>
+            </div>
+          )}
+          {duration > 0 && (
+            <p style={{ fontSize: '0.72rem', color: 'var(--color-muted)', marginTop: '0.35rem' }}>
+              Drag the highlighted region to reposition. Drag edges to resize.
+            </p>
+          )}
         </div>
 
         <div className="audio-buttons">
-          <motion.button type="button" className="secondary-btn" onClick={togglePlayback} whileTap={{ scale: 0.96 }}>
+          <motion.button
+            type="button"
+            className={`secondary-btn ${duration <= 0 ? 'loading' : ''}`}
+            onClick={togglePlayback}
+            disabled={duration <= 0}
+            aria-label={duration <= 0 ? 'Loading waveform' : (isPlaying ? 'Pause preview' : 'Preview selection')}
+            title={duration <= 0 ? 'Loading waveform...' : (isPlaying ? 'Pause' : 'Preview selected region')}
+            whileTap={duration > 0 ? { scale: 0.96 } : {}}
+          >
             {isPlaying ? <Pause size={18} /> : <Play size={18} />}
-            {isPlaying ? 'Pause' : 'Preview'}
+            {duration <= 0 ? 'Loading...' : isPlaying ? 'Pause' : 'Preview'}
           </motion.button>
           <motion.button
             type="button"
             className="secondary-btn"
             onClick={handleTrimAndSend}
-            disabled={loading}
+            disabled={loading || trimSelectionDuration < 0.5}
+            title={trimSelectionDuration < 0.5 ? 'Selection too short (min 0.5s)' : 'Trim and translate selection'}
             whileTap={{ scale: 0.96 }}
           >
             <Scissors size={18} />
@@ -215,9 +266,12 @@ export function AudioInput({
           {isRecording ? <Square size={28} /> : <Mic size={28} />}
         </div>
         {isRecording && (
-          <motion.div id="recording-indicator" className="recording-label" animate={{ opacity: [0.6, 1, 0.6] }} transition={{ duration: 1.5, repeat: Infinity }}>
-            Listening... {formatDuration(recordingDuration)}
-          </motion.div>
+          <div className="recording-container">
+            {activeStream && <RecordingVisualizer stream={activeStream} />}
+            <motion.div id="recording-indicator" className="recording-label" animate={{ opacity: [0.6, 1, 0.6] }} transition={{ duration: 1.5, repeat: Infinity }}>
+              {formatDuration(recordingDuration)}
+            </motion.div>
+          </div>
         )}
       </div>
       <div className="audio-buttons">
@@ -258,7 +312,7 @@ export function AudioInput({
             transition={{ type: 'spring', stiffness: 400, damping: 25 }}
           >
             <Scissors size={18} />
-            Upload & Trim
+            {loading ? loadingMessage : 'Upload & Trim'}
             <input type="file" accept="audio/*" onChange={handleTrimFileSelect} style={{ display: 'none' }} disabled={loading || isRecording} />
           </motion.label>
         ) : null}
@@ -271,7 +325,7 @@ export function AudioInput({
           transition={{ type: 'spring', stiffness: 400, damping: 25 }}
         >
           <Upload size={18} />
-          Upload File
+          {loading ? loadingMessage : 'Upload File'}
           <input id="audio-upload-input" type="file" accept="audio/*" onChange={onFileUpload} style={{ display: 'none' }} disabled={loading || isRecording} />
         </motion.label>
       </div>
@@ -300,7 +354,7 @@ export function AudioInput({
             whileTap={{ scale: 0.96 }}
           >
             <Link2 size={18} />
-            Transcribe Link
+            {loading ? loadingMessage : 'Transcribe Link'}
           </motion.button>
         </div>
       </div>

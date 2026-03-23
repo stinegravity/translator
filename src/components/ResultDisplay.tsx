@@ -1,5 +1,5 @@
 import { motion, type Variants } from 'framer-motion';
-import { Copy, Check, Volume2, Clock, Download, Pencil, RefreshCcw, X } from 'lucide-react';
+import { Copy, Check, Volume2, Clock, Download, Pencil, RefreshCcw, X, Square } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { useState } from 'react';
@@ -34,6 +34,7 @@ interface ResultDisplayProps {
   onCopy: (text: string, field: 'transcribed' | 'translated') => void;
   onSpeak: (text: string) => void;
   speakLoading: boolean;
+  playingText?: string | null;
   dialect: string;
   context: string;
   exportEnabled?: boolean;
@@ -41,6 +42,7 @@ interface ResultDisplayProps {
   retranslating?: boolean;
   onRetranslateTranscript?: (text: string) => Promise<void>;
   onFeedback: (data: FeedbackPayload) => Promise<void>;
+  canSubmitReviewerFeedback?: boolean;
 }
 
 const containerVariants: Variants = {
@@ -70,6 +72,7 @@ export function ResultDisplay({
   onCopy,
   onSpeak,
   speakLoading,
+  playingText,
   dialect,
   context,
   exportEnabled = false,
@@ -77,6 +80,7 @@ export function ResultDisplay({
   retranslating = false,
   onRetranslateTranscript,
   onFeedback,
+  canSubmitReviewerFeedback = false,
 }: ResultDisplayProps) {
   const [isEditingTranscript, setIsEditingTranscript] = useState(false);
   const [editedTranscript, setEditedTranscript] = useState(result?.transcribed ?? '');
@@ -99,8 +103,8 @@ export function ResultDisplay({
             <div className="result-header">
               <span className="label">Transcribed (with timestamps)</span>
               <div className="result-actions">
-                <motion.button type="button" className="copy-button" onClick={() => onSpeak(result.transcribed ?? '')} disabled={speakLoading} whileTap={{ scale: 0.9 }}>
-                  <Volume2 size={16} className={cn(speakLoading && "animate-pulse")} />
+                <motion.button type="button" className="copy-button" onClick={() => onSpeak(result.transcribed ?? '')} disabled={speakLoading && playingText !== result.transcribed} whileTap={{ scale: 0.9 }} title={playingText === result.transcribed ? 'Stop' : 'Listen'}>
+                  {playingText === result.transcribed ? <Square size={16} fill="currentColor" /> : <Volume2 size={16} className={cn(speakLoading && "animate-pulse")} />}
                 </motion.button>
                 {exportEnabled ? (
                   <motion.button
@@ -119,8 +123,8 @@ export function ResultDisplay({
               </div>
             </div>
             <div className="segments-list">
-              {segments.map((seg: TranscriptionSegment) => (
-                <div key={seg.id} className="segment-row">
+              {segments.map((seg: TranscriptionSegment, index: number) => (
+                <div key={seg.id || `segment-${index}`} className="segment-row">
                   <span className="segment-meta">
                     <Clock size={14} />
                     {formatTimestamp(seg.start)} - {formatTimestamp(seg.end)}
@@ -135,8 +139,8 @@ export function ResultDisplay({
             <div className="result-header">
               <span className="label">Translation</span>
               <div className="result-actions">
-                <motion.button type="button" className="copy-button" onClick={() => onSpeak(result.translated)} disabled={speakLoading} whileTap={{ scale: 0.9 }}>
-                  <Volume2 size={18} className={cn(speakLoading && "animate-pulse")} />
+                <motion.button type="button" className="copy-button" onClick={() => onSpeak(result.translated)} disabled={speakLoading && playingText !== result.translated} whileTap={{ scale: 0.9 }} title={playingText === result.translated ? 'Stop' : 'Listen'}>
+                  {playingText === result.translated ? <Square size={18} fill="currentColor" /> : <Volume2 size={18} className={cn(speakLoading && "animate-pulse")} />}
                 </motion.button>
                 {exportEnabled ? (
                   <>
@@ -166,8 +170,8 @@ export function ResultDisplay({
               </div>
             </div>
             <div className="segments-list">
-              {segments.map((seg: TranscriptionSegment) => (
-                <div key={seg.id} className="segment-row">
+              {segments.map((seg: TranscriptionSegment, index: number) => (
+                <div key={(seg.id || `segment-${index}`) + '-trans'} className="segment-row">
                   <span className="segment-voice">{speakerToVoice(seg.speaker)}</span>
                   <span className="segment-text">{seg.translatedText ?? seg.text}</span>
                 </div>
@@ -182,8 +186,8 @@ export function ResultDisplay({
               <div className="result-header">
                 <span className="label">Transcribed</span>
                 <div className="result-actions">
-                  <motion.button type="button" className="copy-button" onClick={() => onSpeak(result.transcribed ?? '')} disabled={speakLoading} whileTap={{ scale: 0.9 }}>
-                    <Volume2 size={16} className={cn(speakLoading && "animate-pulse")} />
+                  <motion.button type="button" className="copy-button" onClick={() => onSpeak(result.transcribed ?? '')} disabled={speakLoading && playingText !== result.transcribed} whileTap={{ scale: 0.9 }} title={playingText === result.transcribed ? 'Stop' : 'Listen'}>
+                    {playingText === result.transcribed ? <Square size={16} fill="currentColor" /> : <Volume2 size={16} className={cn(speakLoading && "animate-pulse")} />}
                   </motion.button>
                   {exportEnabled ? (
                     <motion.button
@@ -247,8 +251,8 @@ export function ResultDisplay({
             <div className="result-header">
               <span className="label">Translation</span>
               <div className="result-actions">
-                <motion.button type="button" className="copy-button" onClick={() => onSpeak(result.translated)} disabled={speakLoading} whileTap={{ scale: 0.9 }}>
-                  <Volume2 size={18} className={cn(speakLoading && "animate-pulse")} />
+                <motion.button type="button" className="copy-button" onClick={() => onSpeak(result.translated)} disabled={speakLoading && playingText !== result.translated} whileTap={{ scale: 0.9 }} title={playingText === result.translated ? 'Stop' : 'Listen'}>
+                  {playingText === result.translated ? <Square size={18} fill="currentColor" /> : <Volume2 size={18} className={cn(speakLoading && "animate-pulse")} />}
                 </motion.button>
                 {exportEnabled ? (
                   <motion.button
@@ -271,15 +275,17 @@ export function ResultDisplay({
         </>
       )}
 
-      {/* Human review feedback — every translation gets rated */}
-      <FeedbackWidget
-        historyId={result.id}
-        source={result.transcribed ?? ''}
-        aiOutput={result.translated}
-        dialect={dialect}
-        context={context}
-        onSubmit={onFeedback}
-      />
+      {/* Approved reviewer feedback only */}
+      {canSubmitReviewerFeedback ? (
+        <FeedbackWidget
+          historyId={result.id}
+          source={result.transcribed ?? result.inputText ?? ''}
+          aiOutput={result.translated}
+          dialect={dialect}
+          context={context}
+          onSubmit={onFeedback}
+        />
+      ) : null}
     </motion.div>
   );
 }

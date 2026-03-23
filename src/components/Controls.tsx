@@ -20,6 +20,7 @@ interface ControlsProps {
   setContext: (c: string) => void;
   dialect: string;
   setDialect: (d: string) => void;
+  hidden?: boolean;
 }
 
 export function Controls({
@@ -33,7 +34,9 @@ export function Controls({
   setContext,
   dialect,
   setDialect,
+  hidden,
 }: ControlsProps) {
+  if (hidden) return null;
   const contexts = ['Casual', 'Formal', 'Business', 'Medical', 'News'];
 
   const [sourceCode, targetCode] = direction.split('-');
@@ -56,6 +59,8 @@ export function Controls({
             <button
               className={cn('mode-btn', inputMode === 'text' && 'active')}
               onClick={() => setInputMode('text')}
+              aria-label="Text translation mode"
+              aria-pressed={inputMode === 'text'}
             >
               <Type size={16} />
               <span>Translate</span>
@@ -63,6 +68,8 @@ export function Controls({
             <button
               className={cn('mode-btn', inputMode === 'audio' && 'active')}
               onClick={() => setInputMode('audio')}
+              aria-label="Audio transcription mode"
+              aria-pressed={inputMode === 'audio'}
             >
               <AudioLines size={16} />
               <span>Listen</span>
@@ -77,20 +84,40 @@ export function Controls({
 
         {/* Language Switcher */}
         <div className="language-switcher-container">
-          <div className="language-switcher">
-            <div className="lang-slot source">
-              <span className="lang-badge">FROM</span>
-              <span className="lang-label">{sourceLanguageLabel}</span>
-            </div>
-            <div className="swap-btn-wrapper">
-              <button className="swap-btn" onClick={onToggleDirection} title="Swap Languages">
-                <ArrowRightLeft size={18} />
+          <div className="language-switcher" style={{ position: 'relative' }}>
+            <motion.div
+              className="lang-pill"
+              layoutId="langPill"
+              initial={false}
+              animate={{ x: direction.startsWith('tw') ? 0 : '124px' }}
+              transition={{ type: 'spring', stiffness: 350, damping: 30 }}
+            />
+            
+            <button 
+              type="button"
+              className={cn('lang-slot source', direction.startsWith('tw') && 'active')}
+              onClick={() => direction.startsWith('en') && onToggleDirection()}
+            >
+              <span className={cn('lang-label', direction.startsWith('tw') ? 'active' : 'muted')}>
+                {sourceLanguageLabel}
+              </span>
+            </button>
+            
+            <div className="swap-btn-wrapper" style={{ zIndex: 10 }}>
+              <button className="swap-btn" onClick={onToggleDirection} title="Swap Languages" aria-label={`Swap translation direction from ${sourceLanguageLabel} to ${targetLanguageLabel}`}>
+                <ArrowRightLeft size={16} />
               </button>
             </div>
-            <div className="lang-slot target">
-              <span className="lang-badge">TO</span>
-              <span className="lang-label">{targetLanguageLabel}</span>
-            </div>
+            
+            <button 
+              type="button"
+              className={cn('lang-slot target', !direction.startsWith('tw') && 'active')}
+              onClick={() => direction.startsWith('tw') && onToggleDirection()}
+            >
+              <span className={cn('lang-label', !direction.startsWith('tw') ? 'active' : 'muted')}>
+                {targetLanguageLabel}
+              </span>
+            </button>
           </div>
         </div>
       </div>

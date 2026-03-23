@@ -1,0 +1,9 @@
+# Run each line separately in the recovery console. Type or paste ONE line, press Enter, wait, then do the next.
+
+mkdir -p /mnt/root/.ssh
+
+echo "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHKD7sBAyayZ9kgpVr1SiOIfyxjfl5D4bZcFyfcDVqgn clubexpress-droplet-20251201" > /mnt/root/.ssh/authorized_keys
+
+chmod 700 /mnt/root/.ssh
+
+chmod 600 /mnt/root/.ssh/authorized_keys

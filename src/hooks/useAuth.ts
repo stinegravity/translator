@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useSession, signIn, signUp, signOut, sendVerificationEmail, requestPasswordReset, resetPassword } from '../lib/auth-client';
 import { perfMetrics } from '../lib/perfMetrics';
-import type { TierName, UsageData } from '../types';
+import type { AuthUser, InternalRole, ReviewerAccessStatus, TierName, UsageData } from '../types';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
 export function useAuth() {
   const { data: session, isPending } = useSession();
   const [usage, setUsage] = useState<UsageData | null>(null);
+  const [accountUser, setAccountUser] = useState<AuthUser | null>(null);
+  const [accountLoaded, setAccountLoaded] = useState(false);
 
   const fetchUsage = useCallback(async () => {
     if (!session?.user) return;
@@ -29,6 +31,66 @@ export function useAuth() {
     }
   }, [isPending, session?.user]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadAccount() {
+      if (!session?.user) {
+        setAccountUser(null);
+        setAccountLoaded(false);
+        return;
+      }
+
+      try {
+        const res = await fetch(`${API_BASE}/api/me`, {
+          credentials: 'include',
+          headers: { 'X-Requested-With': 'KyereAse' },
+        });
+        if (!res.ok) {
+          if (!cancelled) setAccountLoaded(true);
+          return;
+        }
+
+        const data = (await res.json()) as {
+          user: {
+            id: string;
+            email: string;
+            name?: string | null;
+            tier: TierName;
+            portalAccess: boolean;
+            internalRole: InternalRole;
+            reviewerAccess: boolean;
+            reviewerAccessStatus: ReviewerAccessStatus;
+          };
+        };
+
+        if (!cancelled) {
+          setAccountUser({
+            id: data.user.id,
+            email: data.user.email,
+            name: data.user.name || undefined,
+            tier: data.user.tier,
+            portalAccess: data.user.portalAccess,
+            internalRole: data.user.internalRole,
+            reviewerAccess: data.user.reviewerAccess,
+            reviewerAccessStatus: data.user.reviewerAccessStatus,
+            emailVerified: typeof (session.user as Record<string, unknown>).emailVerified === 'boolean' ? (session.user as Record<string, unknown>).emailVerified as boolean : undefined,
+          });
+          setAccountLoaded(true);
+        }
+      } catch {
+        // Fall back to auth session fields if account lookup fails.
+        if (!cancelled) setAccountLoaded(true);
+      }
+    }
+
+    void loadAccount();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [session?.user]);
+
   const login = useCallback(
     async (email: string, password: string) => {
       const result = await signIn.email({ email, password });
@@ -49,7 +111,9 @@ export function useAuth() {
 
   const logout = useCallback(async () => {
     await signOut();
+    setAccountUser(null);
     setUsage(null);
+    window.location.href = window.location.origin;
   }, []);
 
   const resendVerification = useCallback(async (email: string) => {
@@ -74,16 +138,24 @@ export function useAuth() {
   }, []);
 
   return {
-    user: session?.user
-      ? {
-          id: session.user.id,
-          email: session.user.email,
-          name: session.user.name || undefined,
-          tier: ((session.user as Record<string, unknown>).tier as TierName) || 'FREE',
-          emailVerified: (session.user as Record<string, unknown>).emailVerified as boolean | undefined,
-        }
-      : null,
-    isLoading: isPending,
+    user: accountUser ??
+      (session?.user
+      ? (() => {
+          const u = session.user as Record<string, unknown>;
+          return {
+            id: session.user.id,
+            email: session.user.email,
+            name: session.user.name || undefined,
+            tier: (typeof u.tier === 'string' ? u.tier as TierName : 'FREE'),
+            portalAccess: Boolean(u.portalAccess),
+            internalRole: (typeof u.internalRole === 'string' ? u.internalRole as InternalRole : 'CUSTOMER'),
+            reviewerAccess: Boolean(u.reviewerAccess),
+            reviewerAccessStatus: (typeof u.reviewerAccessStatus === 'string' ? u.reviewerAccessStatus as ReviewerAccessStatus : 'NONE'),
+            emailVerified: typeof u.emailVerified === 'boolean' ? u.emailVerified : undefined,
+          };
+        })()
+      : null),
+    isLoading: isPending || (!!session?.user && !accountLoaded),
     isAuthenticated: !!session?.user,
     usage: session?.user ? usage : null,
     login,

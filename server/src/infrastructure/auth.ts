@@ -2,15 +2,42 @@ import { betterAuth } from 'better-auth';
 import { prismaAdapter } from 'better-auth/adapters/prisma';
 import prisma from './db';
 import { logger } from './logger';
-import { sendEmail } from './email';
+import { notifyPasswordReset, notifyEmailVerification } from './notifications';
 
-const baseURL = process.env.BETTER_AUTH_URL || 'http://localhost:3001';
-const appName = 'KyereAse';
+const rawBaseURL = process.env.BETTER_AUTH_URL || 'http://localhost:3001';
+const baseURL = rawBaseURL.replace(/['"]/g, '');
+const isProd = process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'staging';
+
+const devOrigins = [
+  'http://localhost:5173',
+  'http://localhost:5174',
+  'http://localhost:3000',
+  'http://localhost:3001',
+  'http://127.0.0.1:5173',
+  'http://127.0.0.1:5174',
+  'http://127.0.0.1:3001',
+];
+
+const envOrigins = process.env.ALLOWED_ORIGINS?.split(',').map((o) => o.trim()).filter(Boolean) ?? [];
+const baseOrigin = baseURL ? new URL(baseURL).origin : '';
+const prodOrigins = [...new Set([baseOrigin, ...envOrigins])].filter(Boolean);
+const devOriginsFull = [...new Set([...devOrigins, ...envOrigins])];
+
+/**
+ * trustedOrigins as function: when request has no Origin (e.g. health checks, curl),
+ * return our origins so the check can pass. Avoids "Missing or null Origin" errors.
+ */
+const trustedOriginsFn = (): string[] => {
+  const origins = isProd ? prodOrigins : devOriginsFull;
+  if (origins.length === 0 && baseOrigin) return [baseOrigin];
+  return origins;
+};
 
 export const auth = betterAuth({
   basePath: '/api/auth',
   secret: process.env.BETTER_AUTH_SECRET,
   baseURL,
+  trustedOrigins: trustedOriginsFn,
   database: prismaAdapter(prisma, {
     provider: 'postgresql',
   }),
@@ -18,37 +45,13 @@ export const auth = betterAuth({
     enabled: true,
     autoSignIn: true,
     sendResetPassword: async ({ user, url }) => {
-      void sendEmail({
-        to: user.email,
-        subject: `Reset your ${appName} password`,
-        text: `Click the link to reset your password: ${url}\n\nThis link expires in 1 hour. If you didn't request this, you can ignore this email.`,
-        html: `
-          <div style="font-family: sans-serif; padding: 20px;">
-            <h2>Reset your password</h2>
-            <p>Click the link below to reset your ${appName} password:</p>
-            <p><a href="${url}" style="background: #2563eb; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">Reset password</a></p>
-            <p style="color: #666; font-size: 14px;">This link expires in 1 hour. If you didn't request this, you can safely ignore this email.</p>
-          </div>
-        `,
-      });
+      notifyPasswordReset(user, url);
     },
   },
   emailVerification: {
     sendOnSignUp: true,
     sendVerificationEmail: async ({ user, url }) => {
-      void sendEmail({
-        to: user.email,
-        subject: `Verify your ${appName} email`,
-        text: `Click the link to verify your email address: ${url}\n\nIf you didn't create an account, you can ignore this email.`,
-        html: `
-          <div style="font-family: sans-serif; padding: 20px;">
-            <h2>Verify your email</h2>
-            <p>Thanks for signing up for ${appName}. Click the link below to verify your email address:</p>
-            <p><a href="${url}" style="background: #2563eb; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">Verify email</a></p>
-            <p style="color: #666; font-size: 14px;">If you didn't create an account, you can safely ignore this email.</p>
-          </div>
-        `,
-      }).catch((err) => logger.error({ err, email: user.email }, 'Verification email failed'));
+      notifyEmailVerification(user, url);
     },
   },
   session: {
@@ -58,6 +61,12 @@ export const auth = betterAuth({
     },
     expiresIn: 60 * 60 * 24 * 7,
     updateAge: 60 * 60 * 24,
+    cookieOptions: {
+      httpOnly: true,
+      secure: isProd,
+      sameSite: isProd ? 'strict' as const : 'lax' as const,
+      path: '/',
+    },
   },
   account: {
     accountLinking: {
@@ -70,6 +79,26 @@ export const auth = betterAuth({
       tier: {
         type: 'string',
         defaultValue: 'FREE',
+        input: false,
+      },
+      portalAccess: {
+        type: 'boolean',
+        defaultValue: false,
+        input: false,
+      },
+      internalRole: {
+        type: 'string',
+        defaultValue: 'CUSTOMER',
+        input: false,
+      },
+      reviewerAccess: {
+        type: 'boolean',
+        defaultValue: false,
+        input: false,
+      },
+      reviewerAccessStatus: {
+        type: 'string',
+        defaultValue: 'NONE',
         input: false,
       },
       tierExpiresAt: {
@@ -96,6 +125,7 @@ export const auth = betterAuth({
     },
   },
   advanced: {
+    useRuntimeBaseURL: true,
     cookiePrefix: 'kyerease',
     generateId: () => {
       const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';

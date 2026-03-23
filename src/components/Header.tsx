@@ -24,22 +24,29 @@ export function Header({ onToggleHistory, onToggleSettings, showHistory, showSet
   return (
     <header>
       <div className="header-row">
+        <button
+          className="sidebar-toggle-btn"
+          onClick={onToggleHistory}
+          title={showHistory ? 'Hide sidebar' : 'Show sidebar'}
+          style={{ color: showHistory ? 'var(--color-highlight)' : 'inherit' }}
+          aria-label={showHistory ? 'Hide sidebar' : 'Show sidebar'}
+        >
+          <HistoryIcon size={22} />
+          <span>{showHistory ? 'Hide' : 'Library'}</span>
+        </button>
         <motion.div
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6 }}
           className="header-brand"
         >
-          <Languages size={40} color="var(--color-highlight)" />
+          <Languages size={40} color="white" style={{ opacity: 0.9 }} />
           <h1 id="main-title">KyereAse</h1>
         </motion.div>
         <div className="header-actions">
           {user && (
             <div className="user-menu">
               <TierBadge tier={user.tier} />
-              <span className="user-menu-trigger">
-                <span className="user-menu-name">{user.name || user.email}</span>
-              </span>
               <button className="logout-btn" onClick={onLogout} title="Sign out">
                 <LogOut size={16} />
               </button>
@@ -53,18 +60,10 @@ export function Header({ onToggleHistory, onToggleSettings, showHistory, showSet
           >
             <Settings2 size={22} />
           </button>
-          <button
-            className="history-btn"
-            onClick={onToggleHistory}
-            title="History"
-            style={{ color: showHistory ? 'var(--color-highlight)' : 'inherit' }}
-          >
-            <HistoryIcon size={24} />
-          </button>
         </div>
       </div>
       <motion.p className="subtitle" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.3 }}>
-        Intelligent Twi translations with precision context.
+        Twi translations.
       </motion.p>
     </header>
   );

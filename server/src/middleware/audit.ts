@@ -26,6 +26,13 @@ function getAction(req: Request): string {
   if (path.match(/^\/favorites\/[^/]+$/) && method === 'DELETE') return 'favorite_remove';
   if (path === '/settings' && method === 'GET') return 'settings_get';
   if (path === '/settings' && method === 'POST') return 'settings_save';
+  if (path === '/app-feedback' && method === 'POST') return 'app_feedback_submit';
+  if (path === '/app-feedback' && method === 'GET') return 'app_feedback_list';
+  if (path === '/reviewer-access/request' && method === 'POST') return 'reviewer_access_request_submit';
+  if (path === '/reviewer-access/requests' && method === 'GET') return 'reviewer_access_request_list';
+  if (path.match(/^\/reviewer-access\/requests\/[^/]+$/) && method === 'PATCH') return 'reviewer_access_request_review';
+  if (path === '/internal-users' && method === 'GET') return 'internal_users_list';
+  if (path.match(/^\/internal-users\/[^/]+$/) && method === 'PATCH') return 'internal_user_update';
   if (path === '/exports' && method === 'GET') return 'exports_list';
   if (path.match(/^\/history\/[^/]+\/export$/) && method === 'POST') return 'history_export_create';
   if (path.match(/^\/conversations\/[^/]+\/export$/) && method === 'POST') return 'conversation_export_create';

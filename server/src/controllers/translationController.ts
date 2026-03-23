@@ -1,6 +1,6 @@
+import fs from 'fs/promises';
+import path from 'path';
 import { Request, Response } from 'express';
-import { transcriptionService } from '../services/transcriptionService';
-import { youTubeService } from '../services/youtubeService';
 import { speakerService } from '../services/speakerService';
 import { translationService } from '../services/translationService';
 import { exportService } from '../services/exportService';
@@ -11,6 +11,8 @@ import { analyticsRepository } from '../repositories/analyticsRepository';
 import { logger } from '../infrastructure/logger';
 import prisma from '../infrastructure/db';
 import redis from '../infrastructure/redis';
+import { transcriptionQueue, getJobResult, getJobOwner, setJobOwner } from '../queues/transcriptionQueue';
+import { v4 as uuidv4 } from 'uuid';
 import { Direction, InputMode } from '../types';
 import type { HistoryItemForExport } from '../types/export';
 import type { AuthenticatedRequest } from '../middleware/auth';
@@ -42,7 +44,7 @@ export class TranslationController {
 
       await usageService.checkLimit(user.id, user.tier, 'translate', text.length);
 
-      const translation = await translationService.translate(text, target, source, context ?? 'Casual', user.id, folderId, dialect, conversationId);
+      const translation = await translationService.translate(text, target, source, context ?? 'Casual', user.id, folderId, dialect, conversationId, user.tier);
 
       await usageService.recordUsage(user.id, 'translate', text.length);
 
@@ -73,22 +75,31 @@ export class TranslationController {
 
       await usageService.checkLimit(user.id, user.tier, 'transcribe', 1);
 
-      const result = await transcriptionService.transcribeAndTranslate(
-        req.file.buffer,
-        req.file.originalname || 'audio.webm',
-        req.file.mimetype,
-        direction,
-        diarize,
-        user.id,
-        folderId,
-        dialect,
-        conversationId
+      const uploadDir = path.join(process.cwd(), 'uploads');
+      await fs.mkdir(uploadDir, { recursive: true });
+      const tempName = `temp-${uuidv4()}${path.extname(req.file.originalname || '') || '.webm'}`;
+      const tempPath = path.join(uploadDir, tempName);
+      await fs.writeFile(tempPath, req.file.buffer);
+
+      const job = await transcriptionQueue.add(
+        {
+          type: 'audio',
+          tempPath,
+          originalName: req.file.originalname || 'audio.webm',
+          mimetype: req.file.mimetype,
+          direction,
+          diarize,
+          userId: user.id,
+          folderId,
+          dialect,
+          conversationId,
+          tier: user.tier,
+        },
+        { priority: 1 }
       );
+      await setJobOwner(String(job.id), user.id);
 
-      await usageService.recordUsage(user.id, 'transcribe', 1);
-
-      const [source, target] = this.parseDirection(direction);
-      res.json({ ...result, source, target });
+      res.status(202).json({ jobId: String(job.id), status: 'processing' });
     } catch (err: unknown) {
       if (err instanceof Error && 'statusCode' in err && (err as { statusCode: number }).statusCode === 429) {
         res.status(429).json({ error: err.message });
@@ -98,6 +109,28 @@ export class TranslationController {
       res.status(500).json({
         error: err instanceof Error ? err.message : 'Transcription failed',
       });
+    }
+  };
+
+  getTranscriptionStatus = async (req: Request, res: Response) => {
+    try {
+      const { jobId } = req.params as { jobId: string };
+      const user = this.getUser(req);
+      const owner = await getJobOwner(jobId);
+      if (!owner || owner !== user.id) {
+        return res.status(404).json({ error: 'Job not found' });
+      }
+      const result = await getJobResult(jobId);
+      if (!result) {
+        return res.json({ jobId, status: 'processing' });
+      }
+      if (result.status === 'failed') {
+        return res.status(500).json({ jobId, ...result });
+      }
+      res.json({ jobId, ...result });
+    } catch (err) {
+      logger.error({ err }, 'Get transcription status error');
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Request failed' });
     }
   };
 
@@ -113,22 +146,31 @@ export class TranslationController {
       };
       const resolvedDirection = direction || 'tw-en';
       const user = this.getUser(req);
-      const download = await youTubeService.downloadAudio(url);
-      const result = await transcriptionService.transcribeAndTranslate(
-        download.buffer,
-        download.originalName,
-        download.mimeType,
-        resolvedDirection,
-        diarize === true,
-        user.id,
-        folderId,
-        dialect || 'Asante Twi',
-        conversationId
-      );
 
-      const [source, target] = this.parseDirection(resolvedDirection);
-      res.json({ ...result, source, target });
+      await usageService.checkLimit(user.id, user.tier, 'transcribe', 1);
+
+      const job = await transcriptionQueue.add(
+        {
+          type: 'url',
+          url,
+          direction: resolvedDirection,
+          diarize: diarize === true,
+          userId: user.id,
+          folderId,
+          dialect: dialect || 'Asante Twi',
+          conversationId,
+          tier: user.tier,
+        },
+        { priority: 2 }
+      );
+      await setJobOwner(String(job.id), user.id);
+
+      res.status(202).json({ jobId: String(job.id), status: 'processing' });
     } catch (err) {
+      if (err instanceof Error && 'statusCode' in err && (err as { statusCode: number }).statusCode === 429) {
+        res.status(429).json({ error: err.message });
+        return;
+      }
       logger.error({ err }, 'Transcribe URL error');
       res.status(500).json({
         error: err instanceof Error ? err.message : 'YouTube transcription failed',
@@ -304,7 +346,8 @@ export class TranslationController {
         existing.target,
         existing.source,
         context ?? 'Casual',
-        dialect ?? 'Asante Twi'
+        dialect ?? 'Asante Twi',
+        user.tier
       );
       const updated = await translationRepository.updateHistoryTranscript({
         id: historyId,
@@ -336,7 +379,9 @@ export class TranslationController {
   favorites = async (req: Request, res: Response) => {
     try {
       const user = this.getUser(req);
-      const items = await translationRepository.listFavorites(user.email);
+      const limit = Math.min(parseInt(req.query.limit as string, 10) || 50, 200);
+      const offset = Math.max(0, parseInt(req.query.offset as string, 10) || 0);
+      const items = await translationRepository.listFavorites(user.email, limit, offset);
       res.json({ items });
     } catch (err) {
       logger.error({ err }, 'Favorites error');
@@ -388,10 +433,12 @@ export class TranslationController {
         preferredDirection,
         preferredInputMode,
         diarizationEnabled,
+        preferredVoice,
       } = req.body as {
         preferredDirection?: string;
         preferredInputMode?: InputMode;
         diarizationEnabled?: boolean;
+        preferredVoice?: string;
       };
 
       const settings = await translationRepository.saveUserSettings({
@@ -399,6 +446,7 @@ export class TranslationController {
         preferredDirection,
         preferredInputMode,
         diarizationEnabled,
+        preferredVoice,
       });
 
       res.json({ settings });
@@ -412,7 +460,9 @@ export class TranslationController {
     try {
       const user = this.getUser(req);
       const folderId = typeof req.query.folderId === 'string' ? req.query.folderId : undefined;
-      const items = await translationRepository.listConversations(user.email, folderId);
+      const limit = Math.min(parseInt(req.query.limit as string, 10) || 50, 200);
+      const offset = Math.max(0, parseInt(req.query.offset as string, 10) || 0);
+      const items = await translationRepository.listConversations(user.email, folderId, limit, offset);
       res.json({ items });
     } catch (err) {
       logger.error({ err }, 'List conversations error');
@@ -440,7 +490,9 @@ export class TranslationController {
     try {
       const user = this.getUser(req);
       const { id } = req.params as { id: string };
-      const conversation = await translationRepository.getConversation(id, user.email);
+      const limit = Math.min(parseInt(req.query.limit as string, 10) || 100, 200);
+      const offset = Math.max(0, parseInt(req.query.offset as string, 10) || 0);
+      const conversation = await translationRepository.getConversation(id, user.email, limit, offset);
 
       if (!conversation) {
         return res.status(404).json({ error: 'Conversation not found' });
@@ -457,8 +509,8 @@ export class TranslationController {
     try {
       const user = this.getUser(req);
       const { id } = req.params as { id: string };
-      const { title } = req.body as { title: string };
-      const conversation = await translationRepository.updateConversation(id, title, user.email);
+      const { title, folderId } = req.body as { title?: string; folderId?: string | null };
+      const conversation = await translationRepository.updateConversation(id, { title, folderId }, user.email);
 
       if (!conversation) {
         return res.status(404).json({ error: 'Conversation not found' });
@@ -509,6 +561,10 @@ export class TranslationController {
           email: user.email,
           name: user.name,
           tier: user.tier,
+          portalAccess: user.portalAccess,
+          internalRole: user.internalRole,
+          reviewerAccess: user.reviewerAccess,
+          reviewerAccessStatus: user.reviewerAccessStatus,
         },
         usage,
       });

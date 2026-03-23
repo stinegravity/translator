@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { api } from './api/client';
@@ -11,11 +11,15 @@ import { useConversations } from './hooks/useConversations';
 import { useFavorites } from './hooks/useFavorites';
 import { useSettings } from './hooks/useSettings';
 import { useExports } from './hooks/useExports';
+import { useToast } from './hooks/useToast';
+import { useOnlineStatus } from './hooks/useOnlineStatus';
+import { useRecording } from './hooks/useRecording';
 import { Header } from './components/Header';
 import { VerificationBanner } from './components/VerificationBanner';
 import { Controls } from './components/Controls';
 import { TextInput } from './components/TextInput';
 import { Toast } from './components/Toast';
+import { ReviewerAccessBanner } from './components/ReviewerAccessBanner';
 import type { AuthUser, Direction, HistoryItem, InputMode, TranslationResult, UsageData, UserSettings } from './types';
 import { getTierFeatures } from './lib/tierFeatures';
 import { downloadBlob, exportConversationAsText, exportResultAsSrt, exportResultAsText, exportResultAsVtt } from './utils/exporters';
@@ -26,8 +30,7 @@ const SettingsPanel = lazy(async () => await import('./components/SettingsPanel'
 const AudioInput = lazy(async () => await import('./components/AudioInput').then((module) => ({ default: module.AudioInput })));
 const ConversationThread = lazy(async () => await import('./components/ConversationThread').then((module) => ({ default: module.ConversationThread })));
 const ResultDisplay = lazy(async () => await import('./components/ResultDisplay').then((module) => ({ default: module.ResultDisplay })));
-
-const MAX_AUDIO_SIZE_BYTES = 25 * 1024 * 1024;
+import { ResultSkeleton } from './components/ResultSkeleton';
 
 interface AppProps {
   auth: {
@@ -43,22 +46,20 @@ function App({ auth }: AppProps) {
   const refreshUsage = auth.refreshUsage;
   const [inputMode, setInputMode] = useState<InputMode>('text');
   const [direction, setDirection] = useState<Direction>('tw-en');
-  const [textInput, setTextInput] = useState('');
+  const [textInput, setTextInput] = useState(() => sessionStorage.getItem('kyereAse:draft') ?? '');
   const [youtubeUrl, setYoutubeUrl] = useState('');
   const [diarize, setDiarize] = useState(true);
   const [copiedField, setCopiedField] = useState<'transcribed' | 'translated' | null>(null);
-  const [showHistory, setShowHistory] = useState(false);
+  const [showHistory, setShowHistory] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
-  const [isRecording, setIsRecording] = useState(false);
-  const [recordingError, setRecordingError] = useState<string | null>(null);
   const [context, setContext] = useState('Casual');
   const [dialect, setDialect] = useState('Asante Twi');
-  const [toastMessage, setToastMessage] = useState<string | null>(null);
-  const [recordingDuration, setRecordingDuration] = useState(0);
+  const toast = useToast();
+  const [voice, setVoice] = useState('nova');
   const [selectedFolder, setSelectedFolder] = useState('none');
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
   const [previewResult, setPreviewResult] = useState<TranslationResult | null>(null);
-
+  const isOnline = useOnlineStatus();
   const hasIdentity = !!auth.user;
   const featureFlags = getTierFeatures(auth.user?.tier);
   const conversationsEnabled = featureFlags.conversationsEnabled;
@@ -68,7 +69,7 @@ function App({ auth }: AppProps) {
   const exportDataNeeded = showSettings && featureFlags.exportEnabled;
   const { translate, loading: translateLoading, error: translateError, result: translateResult, reset: resetTranslate } = useTranslate();
   const { transcribe, transcribeUrl, loading: transcribeLoading, error: transcribeError, result: transcribeResult, reset: resetTranscribe } = useTranscribe();
-  const { items: historyItems, loading: historyLoading, refetch: refetchHistory } = useHistory(20, true, historyDataNeeded);
+  const { items: historyItems, loading: historyLoading, hasMore: hasMoreHistory, refetch: refetchHistory, loadMore: loadMoreHistory } = useHistory(20, true, historyDataNeeded);
   const { folders, createFolder } = useFolders(true, folderDataNeeded);
   const currentFolderId = selectedFolder === 'none' ? undefined : selectedFolder;
   const {
@@ -79,6 +80,7 @@ function App({ auth }: AppProps) {
     loadConversation,
     createConversation,
     renameConversation,
+    moveConversationToFolder,
     deleteConversation,
     clearActiveConversation,
   } = useConversations(currentFolderId, conversationsEnabled, conversationDataNeeded);
@@ -86,18 +88,19 @@ function App({ auth }: AppProps) {
   const { items: favoriteItems, loading: favoritesLoading, add: addFavorite, remove: removeFavorite, refresh: refreshFavorites } = useFavorites(hasIdentity, favoritesDataNeeded);
   const { settings, saving: settingsSaving, error: settingsError, save: saveSettings } = useSettings(hasIdentity);
   const { items: exportItems, loading: exportsLoading, error: exportsError, refresh: refreshExports } = useExports(featureFlags.exportEnabled, exportDataNeeded);
-  const { speak, loading: speakLoading } = useSpeak();
+  const { speak, activeText, isPlaying, loading: speakLoading } = useSpeak();
 
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const chunksRef = useRef<Blob[]>([]);
   const settingsHydratedRef = useRef(false);
   const settingsSaveTimeoutRef = useRef<number | null>(null);
 
+  // Persist draft text to sessionStorage
   useEffect(() => {
-    if (!isRecording) return;
-    const interval = window.setInterval(() => setRecordingDuration((durationValue) => durationValue + 1), 1000);
-    return () => window.clearInterval(interval);
-  }, [isRecording]);
+    if (textInput) {
+      sessionStorage.setItem('kyereAse:draft', textInput);
+    } else {
+      sessionStorage.removeItem('kyereAse:draft');
+    }
+  }, [textInput]);
 
   useEffect(() => {
     if (!settings || settingsHydratedRef.current) return;
@@ -105,6 +108,7 @@ function App({ auth }: AppProps) {
       if (settings.preferredDirection) setDirection(settings.preferredDirection);
       if (settings.preferredInputMode) setInputMode(settings.preferredInputMode);
       if (typeof settings.diarizationEnabled === 'boolean') setDiarize(settings.diarizationEnabled);
+      if (settings.preferredVoice) setVoice(settings.preferredVoice);
       settingsHydratedRef.current = true;
     }, 0);
 
@@ -126,25 +130,32 @@ function App({ auth }: AppProps) {
       preferredDirection: direction,
       preferredInputMode: inputMode,
       diarizationEnabled: diarize,
+      preferredVoice: voice,
     };
 
     if (settingsSaveTimeoutRef.current) {
       window.clearTimeout(settingsSaveTimeoutRef.current);
     }
 
+    const pendingSettings = nextSettings;
     settingsSaveTimeoutRef.current = window.setTimeout(() => {
-      void saveSettings(nextSettings).catch(() => {});
+      void saveSettings(pendingSettings).catch(() => {});
+      settingsSaveTimeoutRef.current = null;
     }, 500);
 
     return () => {
       if (settingsSaveTimeoutRef.current) {
         window.clearTimeout(settingsSaveTimeoutRef.current);
+        // Flush pending save immediately on unmount
+        void saveSettings(pendingSettings).catch(() => {});
+        settingsSaveTimeoutRef.current = null;
       }
     };
-  }, [diarize, direction, hasIdentity, inputMode, saveSettings]);
+  }, [diarize, direction, hasIdentity, inputMode, saveSettings, voice]);
 
   const loading = translateLoading || transcribeLoading;
-  const error = translateError ?? transcribeError ?? recordingError;
+  const reviewerEligible = useMemo(() => auth.user?.tier === 'PRO' || auth.user?.tier === 'TEAM' || auth.user?.tier === 'ENTERPRISE', [auth.user?.tier]);
+  const canSubmitReviewerFeedback = useMemo(() => auth.user?.reviewerAccess === true && auth.user?.reviewerAccessStatus === 'APPROVED', [auth.user?.reviewerAccess, auth.user?.reviewerAccessStatus]);
   const result = useMemo(
     () => previewResult ?? ((inputMode === 'text' ? translateResult : transcribeResult) as TranslationResult | null),
     [inputMode, previewResult, transcribeResult, translateResult]
@@ -197,55 +208,13 @@ function App({ auth }: AppProps) {
     if (data) {
       setPreviewResult({
         id: data.historyId,
+        inputText: textInput,
         translated: data.translated,
         source: data.source,
         target: data.target,
       });
     }
     await syncHistoryViews();
-  };
-
-  const startRecording = () => {
-    setRecordingError(null);
-    clearPreview();
-    chunksRef.current = [];
-    navigator.mediaDevices.getUserMedia({ audio: true }).then((stream) => {
-      const recorder = new MediaRecorder(stream);
-      mediaRecorderRef.current = recorder;
-      recorder.ondataavailable = (event) => {
-        if (event.data.size > 0) chunksRef.current.push(event.data);
-      };
-      recorder.onstop = async () => {
-        setIsRecording(false);
-        setRecordingDuration(0);
-        stream.getTracks().forEach((track) => track.stop());
-        const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
-        resetTranslate();
-        const conversationId = await ensureConversationId('Voice conversation', 'audio');
-        const data = await transcribe(blob, direction, diarize, currentFolderId, dialect, conversationId);
-        if (data) {
-          setPreviewResult({
-            id: data.historyId,
-            transcribed: data.transcribed,
-            translated: data.translated,
-            source: data.source,
-            target: data.target,
-            segments: data.segments,
-          });
-        }
-        await syncHistoryViews();
-      };
-      recorder.start();
-      setIsRecording(true);
-      setRecordingDuration(0);
-    }).catch((err) => setRecordingError(err instanceof Error ? err.message : 'Microphone access denied'));
-  };
-
-  const stopRecording = () => {
-    if (mediaRecorderRef.current?.state === 'recording') {
-      mediaRecorderRef.current.stop();
-      mediaRecorderRef.current = null;
-    }
   };
 
   const sendAudio = async (blob: Blob) => {
@@ -256,6 +225,7 @@ function App({ auth }: AppProps) {
     if (data) {
       setPreviewResult({
         id: data.historyId,
+        inputText: undefined,
         transcribed: data.transcribed,
         translated: data.translated,
         source: data.source,
@@ -266,6 +236,24 @@ function App({ auth }: AppProps) {
     await syncHistoryViews();
   };
 
+  const {
+    isRecording,
+    recordingDuration,
+    recordingError,
+    activeStream,
+    startRecording: startRecordingRaw,
+    stopRecording,
+    handleFileUpload,
+    clearError: clearRecordingError,
+  } = useRecording({ onRecordingComplete: sendAudio });
+
+  const startRecording = useCallback(() => {
+    clearPreview();
+    startRecordingRaw();
+  }, [clearPreview, startRecordingRaw]);
+
+  const error = translateError ?? transcribeError ?? recordingError;
+
   const handleTranscribeUrl = async () => {
     if (!youtubeUrl.trim()) return;
     clearPreview();
@@ -275,6 +263,7 @@ function App({ auth }: AppProps) {
     if (data) {
       setPreviewResult({
         id: data.historyId,
+        inputText: undefined,
         transcribed: data.transcribed,
         translated: data.translated,
         source: data.source,
@@ -286,26 +275,6 @@ function App({ auth }: AppProps) {
     await syncHistoryViews();
   };
 
-  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    if (!file.type.startsWith('audio/')) {
-      setRecordingError('Only audio files are supported.');
-      event.target.value = '';
-      return;
-    }
-
-    if (file.size > MAX_AUDIO_SIZE_BYTES) {
-      setRecordingError('Audio file exceeds the 25 MB limit.');
-      event.target.value = '';
-      return;
-    }
-
-    void sendAudio(file);
-    event.target.value = '';
-  };
-
   const toggleDirection = () => {
     setDirection((prev) => {
       const parts = prev.split('-');
@@ -314,24 +283,21 @@ function App({ auth }: AppProps) {
     clearPreview();
     resetTranslate();
     resetTranscribe();
-    setRecordingError(null);
+    clearRecordingError();
     setTextInput('');
     setYoutubeUrl('');
   };
 
-  const copyToClipboard = async (text: string, field: 'transcribed' | 'translated') => {
+  const copyToClipboard = useCallback(async (text: string, field: 'transcribed' | 'translated') => {
     try {
       await navigator.clipboard.writeText(text);
       setCopiedField(field);
-      setToastMessage('Copied to clipboard');
-      window.setTimeout(() => {
-        setCopiedField(null);
-        setToastMessage(null);
-      }, 2000);
+      toast.show('Copied to clipboard');
+      window.setTimeout(() => setCopiedField(null), 2000);
     } catch {
-      setToastMessage('Copy failed');
+      toast.show('Copy failed');
     }
-  };
+  }, [toast]);
 
   const handleHistorySelect = (item: HistoryItem) => {
     setInputMode(item.mode);
@@ -350,6 +316,7 @@ function App({ auth }: AppProps) {
     }
     setPreviewResult({
       id: item.id,
+      inputText: item.mode === 'text' ? item.input : undefined,
       transcribed: item.transcribed ?? undefined,
       translated: item.output,
       source: item.source,
@@ -364,11 +331,11 @@ function App({ auth }: AppProps) {
     clearPreview();
     resetTranslate();
     resetTranscribe();
-    setRecordingError(null);
+    clearRecordingError();
   };
 
   const handleRetry = () => {
-    setRecordingError(null);
+    clearRecordingError();
     if (translateError && textInput.trim()) {
       void handleTranslate();
       return;
@@ -379,16 +346,14 @@ function App({ auth }: AppProps) {
     }
   };
 
-  const handleFeedback = async (data: import('./components/FeedbackWidget').FeedbackPayload) => {
+  const handleFeedback = useCallback(async (data: import('./components/FeedbackWidget').FeedbackPayload) => {
     try {
       await api.feedback.submit(data);
-      setToastMessage('Feedback saved — thank you! 🙏');
-      window.setTimeout(() => setToastMessage(null), 3000);
+      toast.show('Feedback saved — thank you!', 3000);
     } catch {
-      setToastMessage('Could not save feedback');
-      window.setTimeout(() => setToastMessage(null), 2000);
+      toast.show('Could not save feedback');
     }
-  };
+  }, [toast]);
 
   const handleRetranslateTranscript = async (nextTranscript: string) => {
     const transcript = nextTranscript.trim();
@@ -400,14 +365,14 @@ function App({ auth }: AppProps) {
 
     setPreviewResult({
       id: data.historyId,
+      inputText: transcript,
       transcribed: transcript,
       translated: data.translated,
       source: data.source,
       target: data.target,
       segments: undefined,
     });
-    setToastMessage('Transcript updated and retranslated');
-    window.setTimeout(() => setToastMessage(null), 2000);
+    toast.show('Transcript updated and retranslated');
     await syncHistoryViews();
   };
 
@@ -421,6 +386,7 @@ function App({ auth }: AppProps) {
     if (previewResult?.id === historyId) {
       setPreviewResult({
         id: updated.item.id,
+        inputText: updated.item.mode === 'text' ? updated.item.input : undefined,
         transcribed: updated.item.transcribed ?? undefined,
         translated: updated.item.output,
         source: updated.item.source,
@@ -433,8 +399,7 @@ function App({ auth }: AppProps) {
       await loadConversation(updated.item.conversation.id);
     }
     await Promise.all([refetchHistory(), refreshFavorites(), refreshConversations()]);
-    setToastMessage('Saved transcript updated');
-    window.setTimeout(() => setToastMessage(null), 2000);
+    toast.show('Saved transcript updated');
   };
 
   const handleToggleFavorite = async (historyId: string, isFavorite: boolean) => {
@@ -442,29 +407,34 @@ function App({ auth }: AppProps) {
       return;
     }
 
-    if (isFavorite) {
-      await removeFavorite(historyId);
-      setToastMessage('Removed from favorites');
-    } else {
-      await addFavorite(historyId);
-      setToastMessage('Added to favorites');
+    try {
+      if (isFavorite) {
+        await removeFavorite(historyId);
+        toast.show('Removed from favorites');
+      } else {
+        await addFavorite(historyId);
+        toast.show('Added to favorites');
+      }
+      await refetchHistory();
+    } catch (err) {
+      toast.show(err instanceof Error ? err.message : 'Failed to update favorite');
     }
-
-    await refetchHistory();
-    window.setTimeout(() => setToastMessage(null), 2000);
   };
 
   const handleArchiveHistory = async (historyId: string) => {
-    await api.archiveHistory(historyId);
-    if (previewResult?.id === historyId) {
-      clearPreview();
+    try {
+      await api.archiveHistory(historyId);
+      if (previewResult?.id === historyId) {
+        clearPreview();
+      }
+      if (activeConversationId) {
+        await loadConversation(activeConversationId);
+      }
+      await Promise.all([refetchHistory(), refreshFavorites(), refreshConversations()]);
+      toast.show('History item archived');
+    } catch (err) {
+      toast.show(err instanceof Error ? err.message : 'Failed to archive history item');
     }
-    if (activeConversationId) {
-      await loadConversation(activeConversationId);
-    }
-    await Promise.all([refetchHistory(), refreshFavorites(), refreshConversations()]);
-    setToastMessage('History item archived');
-    window.setTimeout(() => setToastMessage(null), 2000);
   };
 
   const downloadPersistentExport = async (exportId: string) => {
@@ -481,7 +451,7 @@ function App({ auth }: AppProps) {
       if (result.id && hasIdentity) {
         const created = await api.exports.createHistory(result.id, format);
         await downloadPersistentExport(created.export.id);
-        setToastMessage(`Saved ${format.toUpperCase()} export`);
+        toast.show(`Saved ${format.toUpperCase()} export`);
       } else {
         if (format === 'txt') {
           exportResultAsText(result, result.transcribed ? `${result.target}_transcript_translation` : `${result.target}_translation`);
@@ -490,20 +460,18 @@ function App({ auth }: AppProps) {
         } else {
           exportResultAsVtt(result, `${result.target}_subtitles`);
         }
-        setToastMessage(`Downloaded ${format.toUpperCase()} export`);
+        toast.show(`Downloaded ${format.toUpperCase()} export`);
       }
     } catch (err) {
-      setToastMessage(err instanceof Error ? err.message : 'Export failed');
+      toast.show(err instanceof Error ? err.message : 'Export failed');
     }
-
-    window.setTimeout(() => setToastMessage(null), 2000);
   };
 
   const handleExportHistory = async (historyId: string, format: 'txt' | 'srt' | 'vtt') => {
     try {
       const created = await api.exports.createHistory(historyId, format);
       await downloadPersistentExport(created.export.id);
-      setToastMessage(`Saved ${format.toUpperCase()} export`);
+      toast.show(`Saved ${format.toUpperCase()} export`);
     } catch (err) {
       const item = activeConversationItems.find((entry) => entry.id === historyId) ?? historyItems.find((entry) => entry.id === historyId);
       if (item) {
@@ -515,10 +483,8 @@ function App({ auth }: AppProps) {
           exportResultAsVtt(item, `${activeConversationTitle ?? 'translation'}_turn_${item.id}`);
         }
       }
-      setToastMessage(err instanceof Error ? `${err.message} — downloaded locally instead` : 'Export failed');
+      toast.show(err instanceof Error ? `${err.message} — downloaded locally instead` : 'Export failed', 2500);
     }
-
-    window.setTimeout(() => setToastMessage(null), 2500);
   };
 
   const handleExportConversation = async () => {
@@ -529,13 +495,11 @@ function App({ auth }: AppProps) {
     try {
       const created = await api.exports.createConversation(activeConversationId);
       await downloadPersistentExport(created.export.id);
-      setToastMessage('Saved conversation export');
+      toast.show('Saved conversation export');
     } catch (err) {
       exportConversationAsText(activeConversationTitle, activeConversationItems);
-      setToastMessage(err instanceof Error ? `${err.message} — downloaded locally instead` : 'Conversation export failed');
+      toast.show(err instanceof Error ? `${err.message} — downloaded locally instead` : 'Conversation export failed', 2500);
     }
-
-    window.setTimeout(() => setToastMessage(null), 2500);
   };
 
   const activeResultHistoryId = result?.id;
@@ -547,6 +511,7 @@ function App({ auth }: AppProps) {
       <Suspense fallback={panelFallback}>
         <HistoryPanel
           show={showHistory}
+          persistent
           loading={historyLoading}
           favoritesLoading={favoritesLoading}
           conversationsLoading={conversationsLoading}
@@ -557,18 +522,28 @@ function App({ auth }: AppProps) {
           activeFolderId={selectedFolder}
           activeConversationId={activeConversationId}
           hasIdentity={hasIdentity}
+          hasMoreHistory={hasMoreHistory}
+          onLoadMoreHistory={loadMoreHistory}
           onSetActiveFolder={(id) => {
             setSelectedFolder(id);
             setSelectedConversationId(null);
             clearActiveConversation();
           }}
           onCreateFolder={async (name) => {
-            await createFolder(name);
+            try {
+              await createFolder(name);
+            } catch (err) {
+              toast.show(err instanceof Error ? err.message : 'Failed to create folder');
+            }
           }}
           onCreateConversation={async (title) => {
-            const conversation = await createConversation(title);
-            setSelectedConversationId(conversation.id);
-            await loadConversation(conversation.id);
+            try {
+              const conversation = await createConversation(title);
+              setSelectedConversationId(conversation.id);
+              await loadConversation(conversation.id);
+            } catch (err) {
+              toast.show(err instanceof Error ? err.message : 'Failed to create conversation');
+            }
           }}
           onSelectConversation={(id) => {
             setSelectedConversationId(id);
@@ -579,16 +554,31 @@ function App({ auth }: AppProps) {
             void loadConversation(id);
           }}
           onRenameConversation={async (id, title) => {
-            await renameConversation(id, title);
+            try {
+              await renameConversation(id, title);
+            } catch (err) {
+              toast.show(err instanceof Error ? err.message : 'Failed to rename conversation');
+            }
+          }}
+          onMoveConversation={async (id, destFolderId) => {
+            try {
+              await moveConversationToFolder(id, destFolderId);
+            } catch (err) {
+              toast.show(err instanceof Error ? err.message : 'Failed to move conversation');
+            }
           }}
           onDeleteConversation={async (id) => {
-            await deleteConversation(id);
-            if (selectedConversationId === id) {
-              setSelectedConversationId(null);
-              clearActiveConversation();
-              clearPreview();
+            try {
+              await deleteConversation(id);
+              if (selectedConversationId === id) {
+                setSelectedConversationId(null);
+                clearActiveConversation();
+                clearPreview();
+              }
+              await refetchHistory();
+            } catch (err) {
+              toast.show(err instanceof Error ? err.message : 'Failed to delete conversation');
             }
-            await refetchHistory();
           }}
           onArchiveHistory={handleArchiveHistory}
           onToggleFavorite={handleToggleFavorite}
@@ -597,6 +587,7 @@ function App({ auth }: AppProps) {
         />
       </Suspense>
 
+      <div className="app-main-area">
       <Suspense fallback={panelFallback}>
         <SettingsPanel
           show={showSettings}
@@ -610,15 +601,21 @@ function App({ auth }: AppProps) {
           settingsError={settingsError}
           onDownloadExport={async (exportId) => {
             await downloadPersistentExport(exportId);
-            setToastMessage('Export downloaded');
-            window.setTimeout(() => setToastMessage(null), 2000);
+            toast.show('Export downloaded');
           }}
           onRefreshExports={refreshExports}
+          onSubmitAppFeedback={async (payload) => {
+            await api.appFeedback.submit(payload);
+            toast.show('App feedback saved');
+          }}
+          voice={voice}
+          onVoiceChange={setVoice}
+          onLogout={auth.logout}
           onClose={() => setShowSettings(false)}
         />
       </Suspense>
 
-      <div className="main-card">
+      <div className={`main-card ${showHistory ? 'with-sidebar' : ''}`}>
         <Header
           onToggleHistory={() => setShowHistory((current) => !current)}
           onToggleSettings={() => setShowSettings((current) => !current)}
@@ -635,6 +632,13 @@ function App({ auth }: AppProps) {
           />
         )}
 
+        {!isOnline && (
+          <div className="offline-banner" role="alert">
+            <AlertCircle size={16} />
+            <span>You are offline. Some features may not work.</span>
+          </div>
+        )}
+
         <Controls
           inputMode={inputMode}
           setInputMode={setInputMode}
@@ -648,10 +652,11 @@ function App({ auth }: AppProps) {
           setDialect={setDialect}
         />
 
-        <main>
+        <main id="main-content">
           <AnimatePresence mode="wait">
             {inputMode === 'text' ? (
               <TextInput
+                key="text-input"
                 textInput={textInput}
                 setTextInput={setTextInput}
                 onTranslate={() => void handleTranslate()}
@@ -661,11 +666,12 @@ function App({ auth }: AppProps) {
                 showClear={Boolean(textInput || result)}
               />
             ) : (
-              <Suspense fallback={panelFallback}>
+              <Suspense fallback={panelFallback} key="audio-input">
                 <AudioInput
                   isRecording={isRecording}
                   recordingDuration={recordingDuration}
                   loading={loading}
+                  loadingMessage={transcribeLoading ? 'Processing transcription...' : 'Processing...'}
                   canTrim={featureFlags.audioTrimming}
                   youtubeUrl={youtubeUrl}
                   onYoutubeUrlChange={setYoutubeUrl}
@@ -674,18 +680,13 @@ function App({ auth }: AppProps) {
                   onStopRecording={stopRecording}
                   onFileUpload={handleFileUpload}
                   onSendTrimmed={sendAudio}
+                  activeStream={activeStream ?? undefined}
                 />
               </Suspense>
             )}
           </AnimatePresence>
 
           <AnimatePresence>
-            {activeConversationTitle ? (
-              <motion.div className="conversation-banner" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}>
-                Continuing in chat: <strong>{activeConversationTitle}</strong>
-              </motion.div>
-            ) : null}
-
             {error ? (
               <motion.div id="error-message" className="error-box" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}>
                 <AlertCircle size={18} />
@@ -709,6 +710,17 @@ function App({ auth }: AppProps) {
               </div>
             ) : null}
 
+            {!canSubmitReviewerFeedback && result && auth.user ? (
+              <ReviewerAccessBanner
+                tier={auth.user.tier}
+                reviewerAccessStatus={auth.user.reviewerAccessStatus}
+                onSubmit={async (payload) => {
+                  await api.reviewerAccess.request(payload);
+                  toast.show('Reviewer request submitted');
+                }}
+              />
+            ) : null}
+
             {activeConversationTitle && activeConversationItems.length > 0 ? (
               <Suspense fallback={panelFallback}>
                 <ConversationThread
@@ -720,6 +732,8 @@ function App({ auth }: AppProps) {
                   onExportConversation={handleExportConversation}
                   onExportHistory={handleExportHistory}
                   speakLoading={speakLoading}
+                  playingText={activeText}
+                  isPlaying={isPlaying}
                   onCopy={copyToClipboard}
                   onSpeak={speak}
                   onArchiveHistory={handleArchiveHistory}
@@ -727,15 +741,21 @@ function App({ auth }: AppProps) {
                   onToggleFavorite={handleToggleFavorite}
                 />
               </Suspense>
+            ) : loading ? (
+              <ResultSkeleton
+                key="skeleton"
+                message={transcribeLoading ? 'Processing transcription...' : 'Translating...'}
+              />
             ) : (
               <Suspense fallback={panelFallback}>
                 <ResultDisplay
-                  key={result?.id ?? result?.transcribed ?? 'result'}
+                  key={result?.id || 'result-display'}
                   result={result}
                   copiedField={copiedField}
                   onCopy={copyToClipboard}
                   onSpeak={speak}
                   speakLoading={speakLoading}
+                  playingText={isPlaying ? activeText : null}
                   dialect={dialect}
                   context={context}
                   exportEnabled={featureFlags.exportEnabled}
@@ -743,6 +763,7 @@ function App({ auth }: AppProps) {
                   retranslating={translateLoading}
                   onRetranslateTranscript={result?.transcribed ? handleRetranslateTranscript : undefined}
                   onFeedback={handleFeedback}
+                  canSubmitReviewerFeedback={Boolean(reviewerEligible && canSubmitReviewerFeedback)}
                 />
               </Suspense>
             )}
@@ -750,12 +771,13 @@ function App({ auth }: AppProps) {
         </main>
       </div>
 
-      <Toast message={toastMessage ?? ''} show={Boolean(toastMessage)} />
+      <Toast message={toast.message ?? ''} show={Boolean(toast.message)} />
 
       <style>{`
         .animate-spin { animation: spin 1s linear infinite; }
         @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
       `}</style>
+      </div>
     </div>
   );
 }

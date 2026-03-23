@@ -1,22 +1,28 @@
 import { StrictMode, Suspense, lazy } from 'react';
 import { createRoot } from 'react-dom/client';
+import { AppErrorBoundary } from './components/AppErrorBoundary';
+import { NotFoundPage } from './components/NotFoundPage';
 import './index.css';
 
-const isPortal = window.location.pathname === '/portal';
 const AppShell = lazy(async () => await import('./AppShell').then((module) => ({ default: module.AppShell })));
-const Portal = lazy(async () => await import('./Portal').then((module) => ({ default: module.Portal })));
-const Root = isPortal ? Portal : AppShell;
+const isKnownPath = window.location.pathname === '/';
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <Suspense
-      fallback={
-        <div className="auth-container">
-          <div style={{ color: 'var(--color-muted)', fontSize: '1rem' }}>Loading...</div>
-        </div>
-      }
-    >
-      <Root />
-    </Suspense>
+    <AppErrorBoundary>
+      {isKnownPath ? (
+        <Suspense
+          fallback={
+            <div className="auth-layout" style={{ justifyContent: 'center', alignItems: 'center' }}>
+              <div style={{ color: 'var(--color-muted)', fontSize: '1.25rem', fontWeight: 600 }}>Loading KyereAse...</div>
+            </div>
+          }
+        >
+          <AppShell />
+        </Suspense>
+      ) : (
+        <NotFoundPage />
+      )}
+    </AppErrorBoundary>
   </StrictMode>
 );

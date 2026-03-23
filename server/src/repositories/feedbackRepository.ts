@@ -29,10 +29,11 @@ export class FeedbackRepository {
     });
   }
 
-  async getForHistory(historyId: string) {
+  async getForHistory(historyId: string, limit = 100) {
     return prisma.translationFeedback.findMany({
       where: { historyId },
       orderBy: { createdAt: 'desc' },
+      take: limit,
     });
   }
 
@@ -77,22 +78,25 @@ export class FeedbackRepository {
    */
   async getStats(dialect?: string) {
     const where = dialect ? { dialect } : {};
-    const [total, good, ok, bad, corrected] = await Promise.all([
+    const [ratingGroups, total, corrected] = await Promise.all([
+      prisma.translationFeedback.groupBy({
+        by: ['rating'],
+        where,
+        _count: true,
+      }),
       prisma.translationFeedback.count({ where }),
-      prisma.translationFeedback.count({ where: { ...where, rating: 3 } }),
-      prisma.translationFeedback.count({ where: { ...where, rating: 2 } }),
-      prisma.translationFeedback.count({ where: { ...where, rating: 1 } }),
       prisma.translationFeedback.count({ where: { ...where, correction: { not: null } } }),
     ]);
-    return { total, good, ok, bad, corrected };
+    const counts = Object.fromEntries(ratingGroups.map((g) => [g.rating, g._count]));
+    return { total, good: counts[3] ?? 0, ok: counts[2] ?? 0, bad: counts[1] ?? 0, corrected };
   }
 
   /**
    * Export all feedback with corrections as JSONL for fine-tuning.
    * Format: { prompt, completion } pairs ready for OpenAI fine-tune.
    */
-  async exportFineTuneData(opts: { dialect?: string; minRating?: number } = {}) {
-    const { dialect, minRating = 3 } = opts;
+  async exportFineTuneData(opts: { dialect?: string; minRating?: number; limit?: number } = {}) {
+    const { dialect, minRating = 3, limit = 10000 } = opts;
     const rows = await prisma.translationFeedback.findMany({
       where: {
         rating: { gte: minRating },
@@ -103,6 +107,7 @@ export class FeedbackRepository {
         ...(dialect ? { dialect } : {}),
       },
       orderBy: { createdAt: 'asc' },
+      take: limit,
     });
 
     return rows.map((row) => ({

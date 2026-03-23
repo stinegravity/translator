@@ -36,6 +36,7 @@ interface SaveUserSettingsInput {
   preferredDirection?: string;
   preferredInputMode?: InputMode;
   diarizationEnabled?: boolean;
+  preferredVoice?: string;
 }
 
 interface CreateConversationInput {
@@ -164,7 +165,7 @@ export class TranslationRepository {
     });
   }
 
-  async listConversations(userEmail?: string, folderId?: string) {
+  async listConversations(userEmail?: string, folderId?: string, limit = 50, offset = 0) {
     return prisma.conversation.findMany({
       where: {
         ...(userEmail ? { user: { email: userEmail } } : {}),
@@ -174,6 +175,8 @@ export class TranslationRepository {
         { lastActivityAt: 'desc' },
         { createdAt: 'desc' },
       ],
+      take: Math.min(limit, 200),
+      skip: offset,
       include: {
         folder: true,
         _count: {
@@ -187,7 +190,7 @@ export class TranslationRepository {
     });
   }
 
-  async getConversation(id: string, userEmail?: string) {
+  async getConversation(id: string, userEmail?: string, historyLimit = 100, historyOffset = 0) {
     return prisma.conversation.findFirst({
       where: {
         id,
@@ -200,6 +203,8 @@ export class TranslationRepository {
             archivedAt: null,
           },
           orderBy: { createdAt: 'asc' },
+          take: Math.min(historyLimit, 200),
+          skip: historyOffset,
           include: {
             segments: {
               orderBy: { segmentIndex: 'asc' },
@@ -235,7 +240,7 @@ export class TranslationRepository {
     });
   }
 
-  async updateConversation(id: string, title: string, userEmail?: string) {
+  async updateConversation(id: string, updates: { title?: string; folderId?: string | null }, userEmail?: string) {
     const existing = await prisma.conversation.findFirst({
       where: {
         id,
@@ -250,7 +255,10 @@ export class TranslationRepository {
 
     return prisma.conversation.update({
       where: { id },
-      data: { title: title.trim() || 'New conversation' },
+      data: {
+        ...(updates.title !== undefined ? { title: updates.title.trim() || 'New conversation' } : {}),
+        ...(updates.folderId !== undefined ? { folderId: updates.folderId } : {}),
+      },
       include: {
         folder: true,
         _count: {
@@ -299,7 +307,7 @@ export class TranslationRepository {
     });
   }
 
-  async listFavorites(userEmail: string) {
+  async listFavorites(userEmail: string, limit = 50, offset = 0) {
     return prisma.favorite.findMany({
       where: {
         user: { email: userEmail },
@@ -308,6 +316,8 @@ export class TranslationRepository {
         },
       },
       orderBy: { createdAt: 'desc' },
+      take: Math.min(limit, 200),
+      skip: offset,
       include: {
         history: {
           include: {
@@ -418,11 +428,18 @@ export class TranslationRepository {
     return prisma.userSettings.upsert({
       where: { userId: data.userId },
       update: {
+        ...(data.preferredDirection !== undefined && { preferredDirection: data.preferredDirection }),
+        ...(data.preferredInputMode !== undefined && { preferredInputMode: data.preferredInputMode }),
+        ...(data.diarizationEnabled !== undefined && { diarizationEnabled: data.diarizationEnabled }),
+        ...(data.preferredVoice !== undefined && { preferredVoice: data.preferredVoice }),
+      },
+      create: {
+        userId: data.userId,
         preferredDirection: data.preferredDirection,
         preferredInputMode: data.preferredInputMode,
-        diarizationEnabled: data.diarizationEnabled,
+        diarizationEnabled: data.diarizationEnabled ?? false,
+        preferredVoice: data.preferredVoice,
       },
-      create: data,
     });
   }
 

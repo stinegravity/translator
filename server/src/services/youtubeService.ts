@@ -19,7 +19,19 @@ export class YouTubeService {
       throw new Error('Invalid YouTube URL');
     }
 
-    const info = await ytdl.getInfo(url);
+    let info: ytdl.videoInfo;
+    try {
+      info = await ytdl.getInfo(url);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '';
+      if (message.includes('age') || message.includes('Sign in')) {
+        throw new Error('This video is age-restricted or requires sign-in and cannot be processed');
+      }
+      if (message.includes('private') || message.includes('unavailable')) {
+        throw new Error('This video is private or unavailable');
+      }
+      throw new Error(`Could not load video: ${message || 'unknown error'}`);
+    }
     const durationSeconds = Number(info.videoDetails.lengthSeconds || 0);
     if (durationSeconds > MAX_YOUTUBE_DURATION_SECONDS) {
       throw new Error('YouTube video exceeds the 20 minute limit');

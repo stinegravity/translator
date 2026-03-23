@@ -9,6 +9,7 @@ interface FeedbackWidgetProps {
   dialect: string;
   context: string;        // tone/domain
   onSubmit: (data: FeedbackPayload) => Promise<void>;
+  title?: string;
 }
 
 export interface FeedbackPayload {
@@ -30,7 +31,7 @@ const RATINGS: RatingOption[] = [
   { value: 3, label: 'Good', icon: <ThumbsUp size={16} />, color: 'var(--feedback-good)' },
 ];
 
-export function FeedbackWidget({ historyId, source, aiOutput, dialect, context, onSubmit }: FeedbackWidgetProps) {
+export function FeedbackWidget({ historyId, source, aiOutput, dialect, context, onSubmit, title = 'Was this translation accurate?' }: FeedbackWidgetProps) {
   const [rating, setRating] = useState<1 | 2 | 3 | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [correction, setCorrection] = useState('');
@@ -81,7 +82,7 @@ export function FeedbackWidget({ historyId, source, aiOutput, dialect, context, 
       transition={{ delay: 0.4 }}
     >
       <div className="feedback-row">
-        <span className="feedback-label">Was this translation accurate?</span>
+        <span className="feedback-label">{title}</span>
         <div className="feedback-rating-btns">
           {RATINGS.map((r) => (
             <button

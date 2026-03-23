@@ -10,7 +10,6 @@ export interface TierLimits {
   audioTrimming: boolean;
   apiAccess: boolean;
   exportEnabled: boolean;
-  reviewQueueAccess: boolean;
   requestsPerMinute: number;
 }
 
@@ -25,7 +24,6 @@ export const TIER_LIMITS: Record<TierName, TierLimits> = {
     audioTrimming: false,
     apiAccess: false,
     exportEnabled: false,
-    reviewQueueAccess: false,
     requestsPerMinute: 60,
   },
   PRO: {
@@ -38,7 +36,6 @@ export const TIER_LIMITS: Record<TierName, TierLimits> = {
     audioTrimming: true,
     apiAccess: false,
     exportEnabled: false,
-    reviewQueueAccess: false,
     requestsPerMinute: 120,
   },
   TEAM: {
@@ -51,7 +48,6 @@ export const TIER_LIMITS: Record<TierName, TierLimits> = {
     audioTrimming: true,
     apiAccess: true,
     exportEnabled: true,
-    reviewQueueAccess: true,
     requestsPerMinute: 300,
   },
   ENTERPRISE: {
@@ -64,7 +60,6 @@ export const TIER_LIMITS: Record<TierName, TierLimits> = {
     audioTrimming: true,
     apiAccess: true,
     exportEnabled: true,
-    reviewQueueAccess: true,
     requestsPerMinute: 1000,
   },
 };

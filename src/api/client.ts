@@ -1,7 +1,31 @@
-import type { ConversationItem, Direction, ExportItem, FavoriteItem, FolderItem, HealthStatus, HistoryItem, InputMode, TranscriptionSegment, UsageData, UserSettings } from '../types';
+import type { AppFeedbackItem, ConversationItem, Direction, ExportItem, FavoriteItem, FolderItem, HealthStatus, HistoryItem, InputMode, InternalRole, InternalUserItem, ReviewerAccessStatus, ReviewerApplicationItem, TranscriptionSegment, UsageData, UserSettings } from '../types';
 import { perfMetrics } from '../lib/perfMetrics';
 
 export const API_BASE = import.meta.env.VITE_API_URL || '';
+
+/** Polling interval for transcription job status (ms) */
+const POLL_INTERVAL_MS = 2000;
+/** Maximum polling attempts before timeout (6 minutes at 2s intervals) */
+const MAX_POLL_ATTEMPTS = 180;
+
+// Track in-flight AbortControllers for deduplication
+const inflightControllers = new Map<string, AbortController>();
+
+/**
+ * Cancel any in-flight request for the given key and return a fresh AbortSignal.
+ * Used to prevent duplicate requests when users rapidly trigger the same action.
+ */
+function dedup(key: string): AbortSignal {
+  inflightControllers.get(key)?.abort();
+  const controller = new AbortController();
+  inflightControllers.set(key, controller);
+  controller.signal.addEventListener('abort', () => {
+    if (inflightControllers.get(key) === controller) {
+      inflightControllers.delete(key);
+    }
+  });
+  return controller.signal;
+}
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const startedAt = performance.now();
@@ -9,6 +33,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     ...options,
     credentials: 'include',
     headers: {
+      'X-Requested-With': 'KyereAse',
       ...(!options.body || options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
       ...(options.headers || {}),
     },
@@ -22,10 +47,18 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     window.dispatchEvent(new CustomEvent('auth:expired'));
     throw new Error('Session expired — please sign in again');
   }
+  if (res.status === 413) {
+    throw new Error('File too large — try a shorter recording or smaller file (max 25MB)');
+  }
 
-  const data = await res.json();
+  let data: unknown;
+  try {
+    data = await res.json();
+  } catch {
+    throw new Error(res.ok ? 'Invalid response' : `Request failed (${res.status})`);
+  }
   if (!res.ok) {
-    throw new Error(data.error || 'Request failed');
+    throw new Error((data as { error?: string })?.error || 'Request failed');
   }
 
   perfMetrics.recordRequest({
@@ -43,41 +76,106 @@ export const api = {
     request<{ translated: string; source: string; target: string; historyId?: string }>('/api/translate', {
       method: 'POST',
       body: JSON.stringify({ text, direction, context, folderId, dialect, conversationId }),
+      signal: dedup('translate'),
     }),
 
-  transcribe: (formData: FormData) =>
-    request<{
-      historyId?: string;
-      transcribed: string;
-      translated: string;
-      source: string;
-      target: string;
-      segments?: TranscriptionSegment[];
-    }>('/api/transcribe', {
+  transcribe: async (
+    formData: FormData,
+    onProgress?: (status: string) => void
+  ): Promise<{
+    historyId?: string;
+    transcribed: string;
+    translated: string;
+    source: string;
+    target: string;
+    segments?: TranscriptionSegment[];
+  }> => {
+    const data = await request<{ jobId?: string; status?: string; error?: string }>('/api/transcribe', {
       method: 'POST',
       body: formData,
-    }),
+    });
+    if (!data.jobId) throw new Error('Unexpected response');
+    onProgress?.('processing');
+    return api.pollTranscriptionJob(data.jobId, onProgress);
+  },
 
-  transcribeUrl: (payload: { url: string; direction: Direction; diarize?: boolean; folderId?: string; dialect?: string; conversationId?: string }) =>
-    request<{
-      historyId?: string;
-      transcribed: string;
-      translated: string;
-      source: string;
-      target: string;
-      segments?: TranscriptionSegment[];
-    }>('/api/transcribe-url', {
+  pollTranscriptionJob: async (
+    jobId: string,
+    onProgress?: (status: string) => void
+  ): Promise<{
+    historyId?: string;
+    transcribed: string;
+    translated: string;
+    source: string;
+    target: string;
+    segments?: TranscriptionSegment[];
+  }> => {
+    for (let i = 0; i < MAX_POLL_ATTEMPTS; i++) {
+      const result = await request<{
+        jobId: string;
+        status: string;
+        transcribed?: string;
+        translated?: string;
+        source?: string;
+        target?: string;
+        historyId?: string;
+        segments?: TranscriptionSegment[];
+        error?: string;
+      }>(`/api/transcribe/${jobId}`);
+      if (result.status === 'completed' && result.transcribed !== undefined) {
+        return {
+          historyId: result.historyId,
+          transcribed: result.transcribed,
+          translated: result.translated ?? '',
+          source: result.source ?? '',
+          target: result.target ?? '',
+          segments: result.segments,
+        };
+      }
+      if (result.status === 'failed' && result.error) {
+        throw new Error(result.error);
+      }
+      onProgress?.('processing');
+      await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+    }
+    throw new Error('Transcription timed out');
+  },
+
+  transcribeUrl: async (
+    payload: { url: string; direction: Direction; diarize?: boolean; folderId?: string; dialect?: string; conversationId?: string },
+    onProgress?: (status: string) => void
+  ): Promise<{
+    historyId?: string;
+    transcribed: string;
+    translated: string;
+    source: string;
+    target: string;
+    segments?: TranscriptionSegment[];
+  }> => {
+    const data = await request<{ jobId?: string; status?: string; error?: string }>('/api/transcribe-url', {
       method: 'POST',
       body: JSON.stringify(payload),
-    }),
+    });
+    if (!data.jobId) throw new Error('Unexpected response');
+    onProgress?.('processing');
+    return api.pollTranscriptionJob(data.jobId, onProgress);
+  },
 
-  speak: (text: string) =>
-    fetch(`${API_BASE}/api/speak`, {
+  speak: async (text: string) => {
+    const signal = dedup('speak');
+    const res = await fetch(`${API_BASE}/api/speak`, {
       method: 'POST',
       credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'KyereAse' },
       body: JSON.stringify({ text }),
-    }),
+      signal,
+    });
+    if (res.status === 401) {
+      window.dispatchEvent(new CustomEvent('auth:expired'));
+      throw new Error('Session expired — please sign in again');
+    }
+    return res;
+  },
 
   history: (limit = 10) =>
     request<{ items: HistoryItem[] }>(`/api/history?limit=${limit}`),
@@ -123,6 +221,23 @@ export const api = {
       ),
   },
 
+  appFeedback: {
+    submit: (data: {
+      overallRating: number;
+      performanceRating: number;
+      reliabilityRating: number;
+      easeRating: number;
+      notes?: string;
+      currentPath?: string;
+    }) =>
+      request<{ feedback: { id: string } }>('/api/app-feedback', {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
+    list: (limit = 50) =>
+      request<{ items: AppFeedbackItem[] }>(`/api/app-feedback?limit=${limit}`),
+  },
+
   folders: {
     list: () => request<{ folders: FolderItem[] }>('/api/folders'),
     create: (name: string) =>
@@ -144,10 +259,10 @@ export const api = {
       }),
     get: (id: string) =>
       request<{ conversation: ConversationItem & { histories: HistoryItem[] } }>(`/api/conversations/${id}`),
-    update: (id: string, title: string) =>
+    update: (id: string, updates: { title?: string; folderId?: string | null }) =>
       request<{ conversation: ConversationItem }>(`/api/conversations/${id}`, {
         method: 'PATCH',
-        body: JSON.stringify({ title }),
+        body: JSON.stringify(updates),
       }),
     remove: (id: string) =>
       request<void>(`/api/conversations/${id}`, { method: 'DELETE' }),
@@ -214,7 +329,64 @@ export const api = {
 
   usage: () => request<UsageData>('/api/usage'),
 
-  me: () => request<{ user: { id: string; email: string; name: string; tier: string }; usage: UsageData }>('/api/me'),
+  me: () =>
+    request<{
+      user: {
+        id: string;
+        email: string;
+        name: string;
+        tier: string;
+        portalAccess: boolean;
+        internalRole: InternalRole;
+        reviewerAccess: boolean;
+        reviewerAccessStatus: ReviewerAccessStatus;
+      };
+      usage: UsageData;
+    }>('/api/me'),
+
+  internalUsers: {
+    list: () => request<{ items: InternalUserItem[] }>('/api/internal-users'),
+    update: (id: string, payload: { internalRole: InternalRole }) =>
+      request<{ user: InternalUserItem }>(`/api/internal-users/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(payload),
+      }),
+  },
+
+  modelConfig: {
+    get: () =>
+      request<{ items: Array<{ key: string; label: string; value: string; default: string }> }>('/api/model-config'),
+    update: (updates: Record<string, string>) =>
+      request<{ models: Record<string, string> }>('/api/model-config', {
+        method: 'PATCH',
+        body: JSON.stringify(updates),
+      }),
+  },
+
+  reviewerAccess: {
+    request: (payload: {
+      organization?: string;
+      roleTitle?: string;
+      languages?: string;
+      credentials: string;
+      reviewUseCase?: string;
+      portfolioUrl?: string;
+      notes?: string;
+    }) =>
+      request<{ application: { id: string } }>('/api/reviewer-access/request', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }),
+    listRequests: (status?: 'PENDING' | 'APPROVED' | 'REJECTED', limit = 50) =>
+      request<{ items: ReviewerApplicationItem[] }>(
+        `/api/reviewer-access/requests?limit=${limit}${status ? `&status=${encodeURIComponent(status)}` : ''}`
+      ),
+    reviewRequest: (id: string, payload: { status: 'APPROVED' | 'REJECTED'; reviewerDecisionNotes?: string }) =>
+      request<{ application: ReviewerApplicationItem }>(`/api/reviewer-access/requests/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(payload),
+      }),
+  },
 
   health: () => request<HealthStatus>('/api/health'),
 };

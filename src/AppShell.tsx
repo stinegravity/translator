@@ -17,8 +17,8 @@ export function AppShell() {
 
   if (auth.isLoading) {
     return (
-      <div className="auth-container">
-        <div style={{ color: 'var(--color-muted)', fontSize: '1rem' }}>Loading...</div>
+      <div className="auth-layout" style={{ justifyContent: 'center', alignItems: 'center' }}>
+        <div style={{ color: 'var(--color-muted)', fontSize: '1.25rem', fontWeight: 600 }}>Loading KyereAse...</div>
       </div>
     );
   }
@@ -27,8 +27,8 @@ export function AppShell() {
     return (
       <Suspense
         fallback={
-          <div className="auth-container">
-            <div style={{ color: 'var(--color-muted)', fontSize: '1rem' }}>Loading...</div>
+          <div className="auth-layout" style={{ justifyContent: 'center', alignItems: 'center' }}>
+            <div style={{ color: 'var(--color-muted)', fontSize: '1.25rem', fontWeight: 600 }}>Preparing workspace...</div>
           </div>
         }
       >
@@ -43,14 +43,17 @@ export function AppShell() {
   }
 
   return (
-    <Suspense
-      fallback={
-        <div className="auth-container">
-          <div style={{ color: 'var(--color-muted)', fontSize: '1rem' }}>Loading...</div>
-        </div>
-      }
-    >
-      <App auth={auth} />
-    </Suspense>
+    <>
+      <a href="#main-content" className="skip-to-content">Skip to content</a>
+      <Suspense
+        fallback={
+          <div className="auth-container">
+            <div style={{ color: 'var(--color-muted)', fontSize: '1rem' }}>Loading...</div>
+          </div>
+        }
+      >
+        <App auth={auth} />
+      </Suspense>
+    </>
   );
 }

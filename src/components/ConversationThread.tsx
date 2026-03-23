@@ -1,4 +1,4 @@
-import { Archive, Clock, Copy, Download, Pencil, RefreshCcw, Search, Star, Volume2, X } from 'lucide-react';
+import { Archive, Check, Clock, Copy, Download, Pencil, RefreshCcw, Search, Star, Volume2, X, Pause } from 'lucide-react';
 import { useState } from 'react';
 import type { HistoryItem } from '../types';
 import { exportConversationAsText, exportResultAsSrt, exportResultAsText, exportResultAsVtt } from '../utils/exporters';
@@ -12,6 +12,8 @@ interface ConversationThreadProps {
   onExportConversation?: () => Promise<void>;
   onExportHistory?: (historyId: string, format: 'txt' | 'srt' | 'vtt') => Promise<void>;
   speakLoading: boolean;
+  playingText?: string | null;
+  isPlaying?: boolean;
   onCopy: (text: string, field: 'transcribed' | 'translated') => void;
   onSpeak: (text: string) => void;
   onArchiveHistory: (historyId: string) => Promise<void>;
@@ -37,6 +39,8 @@ export function ConversationThread({
   onExportConversation,
   onExportHistory,
   speakLoading,
+  playingText,
+  isPlaying,
   onCopy,
   onSpeak,
   onArchiveHistory,
@@ -46,18 +50,21 @@ export function ConversationThread({
   const [searchQuery, setSearchQuery] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editedTranscript, setEditedTranscript] = useState('');
+  const [confirmArchiveId, setConfirmArchiveId] = useState<string | null>(null);
   const normalizedSearch = searchQuery.trim().toLowerCase();
 
-  const filteredItems = items.filter((item) => {
-    if (!normalizedSearch) return true;
-    const haystacks = [
-      item.input,
-      item.output,
-      item.transcribed ?? '',
-      ...(item.segments?.flatMap((segment) => [segment.text, segment.translatedText ?? '']) ?? []),
-    ];
-    return haystacks.some((value) => value.toLowerCase().includes(normalizedSearch));
-  });
+  const filteredItems = [...items]
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    .filter((item) => {
+      if (!normalizedSearch) return true;
+      const haystacks = [
+        item.input,
+        item.output,
+        item.transcribed ?? '',
+        ...(item.segments?.flatMap((segment) => [segment.text, segment.translatedText ?? '']) ?? []),
+      ];
+      return haystacks.some((value) => value.toLowerCase().includes(normalizedSearch));
+    });
 
   return (
     <section className="thread-panel">
@@ -110,7 +117,8 @@ export function ConversationThread({
                     {formatTimestamp(item.createdAt)}
                   </span>
                 </div>
-                <button
+                <div className="thread-actions">
+                  <button
                   type="button"
                   className={`favorite-toggle ${isFavorite ? 'active' : ''}`}
                   onClick={() => void onToggleFavorite(item.id, isFavorite)}
@@ -134,40 +142,24 @@ export function ConversationThread({
                 ) : null}
                 <button
                   type="button"
-                  className="favorite-toggle"
+                  className={`favorite-toggle ${confirmArchiveId === item.id ? 'confirm' : ''}`}
                   onClick={() => {
-                    if (window.confirm('Archive this history item?')) {
+                    if (confirmArchiveId === item.id) {
                       void onArchiveHistory(item.id);
+                      setConfirmArchiveId(null);
+                    } else {
+                      setConfirmArchiveId(item.id);
+                      setTimeout(() => setConfirmArchiveId(null), 3000);
                     }
                   }}
-                  title="Archive history item"
+                  title={confirmArchiveId === item.id ? 'Confirm archive' : 'Archive history item'}
                 >
-                  <Archive size={14} />
+                  {confirmArchiveId === item.id ? <Check size={14} /> : <Archive size={14} />}
                 </button>
+                </div>
               </div>
 
-              <div className="thread-block">
-                <div className="thread-block-header">
-                  <span>Source</span>
-                  <div className="thread-actions">
-                    <button type="button" className="copy-button" onClick={() => onSpeak(item.input)} disabled={speakLoading}>
-                      <Volume2 size={16} />
-                    </button>
-                    {exportEnabled ? (
-                      <button
-                        type="button"
-                        className="copy-button"
-                        onClick={() => void (onExportHistory ? onExportHistory(item.id, 'txt') : Promise.resolve(exportResultAsText(item, `${title}_turn_${item.id}`)))}
-                        title="Export text"
-                      >
-                        <Download size={16} />
-                      </button>
-                    ) : null}
-                    <button type="button" className="copy-button" onClick={() => onCopy(item.input, 'transcribed')}>
-                      <Copy size={16} />
-                    </button>
-                  </div>
-                </div>
+              <div className="chat-bubble chat-bubble-source">
                 {editingId === item.id ? (
                   <div className="thread-editor">
                     <textarea
@@ -204,67 +196,86 @@ export function ConversationThread({
                     </div>
                   </div>
                 ) : (
-                  <p className="thread-text">{item.transcribed ?? item.input}</p>
+                  <div className="chat-content-stack">
+                    {item.transcribed ? (
+                      <>
+                        <p className="chat-text-meta">
+                          {item.input.length > 60 ? `${item.input.slice(0, 60)}...` : item.input}
+                        </p>
+                        <p className="chat-text transcribed">{item.transcribed}</p>
+                      </>
+                    ) : (
+                      <p className="chat-text">{item.input}</p>
+                    )}
+                  </div>
                 )}
                 {item.segments && item.segments.length > 0 ? (
-                  <div className="thread-segments">
-                    {item.segments.map((segment) => (
-                      <div key={segment.id} className="thread-segment">
-                        <span className="thread-segment-meta">
-                          {segment.speaker} · {Math.floor(segment.start)}s - {Math.floor(segment.end)}s
-                        </span>
-                        <p className="thread-segment-text">{segment.text}</p>
+                  <div className="chat-segments">
+                    {item.segments.map((segment, index) => (
+                      <div key={segment.id ?? `${item.id}-seg-${index}`} className="chat-segment">
+                        <span className="chat-segment-meta">{segment.speaker} · {Math.floor(segment.start)}s - {Math.floor(segment.end)}s</span>
+                        <p className="chat-segment-text">{segment.text}</p>
                       </div>
                     ))}
                   </div>
                 ) : null}
+                <div className="chat-actions chat-actions-source">
+                  <button 
+                    type="button" 
+                    className="copy-button" 
+                    onClick={() => onSpeak(item.input)} 
+                    disabled={speakLoading && playingText !== item.input} 
+                    title={(isPlaying && playingText === item.input) ? "Pause" : "Listen"}
+                  >
+                    {(isPlaying && playingText === item.input) ? <Pause size={13} fill="currentColor" /> : <Volume2 size={13} />}
+                  </button>
+                  {exportEnabled ? (
+                    <button type="button" className="copy-button" onClick={() => void (onExportHistory ? onExportHistory(item.id, 'txt') : Promise.resolve(exportResultAsText(item, `${title}_turn_${item.id}`)))} title="Export text">
+                      <Download size={13} />
+                    </button>
+                  ) : null}
+                  <button type="button" className="copy-button" onClick={() => onCopy(item.input, 'transcribed')} title="Copy source">
+                    <Copy size={13} />
+                  </button>
+                </div>
               </div>
 
-              <div className="thread-block thread-block-output">
-                <div className="thread-block-header">
-                  <span>Translation</span>
-                  <div className="thread-actions">
-                    <button type="button" className="copy-button" onClick={() => onSpeak(item.output)} disabled={speakLoading}>
-                      <Volume2 size={16} />
-                    </button>
-                    {exportEnabled && item.segments && item.segments.length > 0 ? (
-                      <>
-                        <button
-                          type="button"
-                          className="copy-button"
-                          onClick={() => void (onExportHistory ? onExportHistory(item.id, 'srt') : Promise.resolve(exportResultAsSrt(item, `${title}_turn_${item.id}`)))}
-                          title="Export SRT"
-                        >
-                          <span className="export-mini-label">SRT</span>
-                        </button>
-                        <button
-                          type="button"
-                          className="copy-button"
-                          onClick={() => void (onExportHistory ? onExportHistory(item.id, 'vtt') : Promise.resolve(exportResultAsVtt(item, `${title}_turn_${item.id}`)))}
-                          title="Export VTT"
-                        >
-                          <span className="export-mini-label">VTT</span>
-                        </button>
-                      </>
-                    ) : null}
-                    <button type="button" className="copy-button" onClick={() => onCopy(item.output, 'translated')}>
-                      <Copy size={16} />
-                    </button>
-                  </div>
-                </div>
-                <p className="thread-text">{item.output}</p>
+              <div className="chat-bubble chat-bubble-target">
+                <p className="chat-text">{item.output}</p>
                 {item.segments && item.segments.some((segment) => segment.translatedText) ? (
-                  <div className="thread-segments">
-                    {item.segments.map((segment) => (
-                      <div key={`${segment.id}-translated`} className="thread-segment">
-                        <span className="thread-segment-meta">
-                          {segment.speaker} translation
-                        </span>
-                        <p className="thread-segment-text">{segment.translatedText ?? segment.text}</p>
+                  <div className="chat-segments">
+                    {item.segments.map((segment, index) => (
+                      <div key={`${segment.id ?? `${item.id}-seg-${index}`}-translated`} className="chat-segment">
+                        <span className="chat-segment-meta">{segment.speaker} translation</span>
+                        <p className="chat-segment-text">{segment.translatedText ?? segment.text}</p>
                       </div>
                     ))}
                   </div>
                 ) : null}
+                <div className="chat-actions chat-actions-target">
+                  <button 
+                    type="button" 
+                    className="copy-button" 
+                    onClick={() => onSpeak(item.output)} 
+                    disabled={speakLoading && playingText !== item.output} 
+                    title={(isPlaying && playingText === item.output) ? "Pause" : "Listen"}
+                  >
+                    {(isPlaying && playingText === item.output) ? <Pause size={13} fill="currentColor" /> : <Volume2 size={13} />}
+                  </button>
+                  {exportEnabled && item.segments && item.segments.length > 0 ? (
+                    <>
+                      <button type="button" className="copy-button" onClick={() => void (onExportHistory ? onExportHistory(item.id, 'srt') : Promise.resolve(exportResultAsSrt(item, `${title}_turn_${item.id}`)))} title="Export SRT">
+                        <span className="export-mini-label">SRT</span>
+                      </button>
+                      <button type="button" className="copy-button" onClick={() => void (onExportHistory ? onExportHistory(item.id, 'vtt') : Promise.resolve(exportResultAsVtt(item, `${title}_turn_${item.id}`)))} title="Export VTT">
+                        <span className="export-mini-label">VTT</span>
+                      </button>
+                    </>
+                  ) : null}
+                  <button type="button" className="copy-button" onClick={() => onCopy(item.output, 'translated')} title="Copy translation">
+                    <Copy size={13} />
+                  </button>
+                </div>
               </div>
             </article>
           );

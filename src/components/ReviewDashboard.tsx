@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback } from 'react';
 import { api } from '../api/client';
 import { ChevronRight, Download, CheckCircle } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { CustomSelect } from './CustomSelect';
+import { AdminSkeleton } from './AdminSkeleton';
 
 interface ReviewItem {
   id: string;
@@ -19,7 +21,18 @@ interface ReviewItem {
   };
 }
 
-export function ReviewDashboard() {
+interface ReviewDashboardProps {
+  onBack: () => void;
+}
+
+const dialectOptions = [
+  { label: 'All Dialects', value: 'all' },
+  { label: 'Asante Twi', value: 'Asante Twi' },
+  { label: 'Akuapem Twi', value: 'Akuapem Twi' },
+  { label: 'Fante', value: 'Fante' },
+];
+
+export function ReviewDashboard({ onBack }: ReviewDashboardProps) {
   const [items, setItems] = useState<ReviewItem[]>([]);
   const [stats, setStats] = useState({ total: 0, good: 0, ok: 0, bad: 0, corrected: 0 });
   const [loading, setLoading] = useState(true);
@@ -54,14 +67,19 @@ export function ReviewDashboard() {
   return (
     <div className="review-dashboard">
       <header className="review-header">
-        <h1>Human Review Queue</h1>
+        <div className="review-title-row">
+          <button onClick={onBack} className="review-back-btn">
+            <ChevronRight size={20} style={{ transform: 'rotate(180deg)' }} />
+          </button>
+          <h1>Human Review Queue</h1>
+        </div>
         <div className="review-actions">
-          <select value={dialect} onChange={(e) => setDialect(e.target.value)} className="review-select">
-            <option value="all">All Dialects</option>
-            <option value="Asante Twi">Asante Twi</option>
-            <option value="Akuapem Twi">Akuapem Twi</option>
-            <option value="Fante">Fante</option>
-          </select>
+          <CustomSelect
+            label=""
+            value={dialect}
+            onChange={setDialect}
+            options={dialectOptions}
+          />
           <button onClick={handleExport} className="review-export-btn">
             <Download size={16} />
             Export for Fine-tuning
@@ -95,7 +113,7 @@ export function ReviewDashboard() {
       <div className="review-list">
         <h2>Review Items (Bad/OK without correction)</h2>
         {loading ? (
-          <p className="loading-text">Loading queue...</p>
+          <AdminSkeleton rows={4} />
         ) : items.length === 0 ? (
           <div className="empty-state">
             <CheckCircle size={48} />
@@ -145,6 +163,29 @@ export function ReviewDashboard() {
           justify-content: space-between;
           align-items: center;
           margin-bottom: 2rem;
+          gap: 1rem;
+        }
+        .review-title-row {
+          display: flex;
+          align-items: center;
+          gap: 0.75rem;
+        }
+        .review-back-btn {
+          background: rgba(255, 255, 255, 0.05);
+          border: 1px solid rgba(255, 255, 255, 0.1);
+          color: white;
+          width: 36px;
+          height: 36px;
+          border-radius: 10px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          cursor: pointer;
+          transition: all 0.2s;
+        }
+        .review-back-btn:hover {
+          background: rgba(255, 255, 255, 0.1);
+          transform: translateX(-2px);
         }
         .review-actions {
           display: flex;

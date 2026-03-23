@@ -5,6 +5,8 @@ import { storageService } from './storageService';
 import { analyticsRepository } from '../repositories/analyticsRepository';
 import { logger } from '../infrastructure/logger';
 import { withRetry } from '../infrastructure/retry';
+import type { TierName } from '../config/tiers';
+import { modelConfigService } from './modelConfigService';
 
 interface DiarizedSegment {
   id: string;
@@ -30,7 +32,8 @@ export class TranscriptionService {
     userId?: string,
     folderId?: string,
     dialect = 'Asante Twi',
-    conversationId?: string
+    conversationId?: string,
+    tier: TierName = 'FREE'
   ) {
     const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) throw new Error('OPENAI_API_KEY is not set');
@@ -40,10 +43,10 @@ export class TranscriptionService {
     const [source, target] = direction.includes('-') ? direction.split('-') : ['en', 'tw'];
 
     if (diarize) {
-      return this.transcribeWithDiarization(openai, file, source, target, buffer, originalName, mimetype, userId, folderId, dialect, conversationId);
+      return this.transcribeWithDiarization(openai, file, source, target, buffer, originalName, mimetype, userId, folderId, dialect, conversationId, tier);
     }
 
-    return this.transcribeBasic(openai, file, source, target, buffer, originalName, mimetype, userId, folderId, dialect, conversationId);
+    return this.transcribeBasic(openai, file, source, target, buffer, originalName, mimetype, userId, folderId, dialect, conversationId, tier);
   }
 
   private async transcribeBasic(
@@ -57,20 +60,53 @@ export class TranscriptionService {
     userId?: string,
     folderId?: string,
     dialect = 'Asante Twi',
-    conversationId?: string
+    conversationId?: string,
+    tier: TierName = 'FREE'
   ) {
+    const models = await modelConfigService.getModels();
     const transcript = await withRetry(() =>
       openai.audio.transcriptions.create({
         file,
-        model: 'whisper-1',
+        model: models.OPENAI_TRANSCRIPTION_MODEL,
       })
     );
 
     const transcribedText = (transcript as { text?: string }).text?.trim() ?? '';
     if (!transcribedText) return { transcribed: '', translated: '', source, target };
 
-    const translation = await translationService.translate(transcribedText, target, source, 'Casual', userId, folderId, dialect, conversationId);
+    const translation = await translationService.translate(transcribedText, target, source, 'Casual', userId, folderId, dialect, conversationId, tier);
     const translatedText = translation.translated;
+
+    return this.persistTranscriptionResult({
+      buffer,
+      originalName,
+      mimetype,
+      source,
+      target,
+      transcribedText,
+      translatedText,
+      userId,
+      folderId,
+      conversationId,
+      diarized: false,
+    });
+  }
+
+  private async persistTranscriptionResult(params: {
+    buffer: Buffer;
+    originalName: string;
+    mimetype: string;
+    source: string;
+    target: string;
+    transcribedText: string;
+    translatedText: string;
+    userId?: string;
+    folderId?: string;
+    conversationId?: string;
+    diarized: boolean;
+    segments?: Array<{ speaker: string; start: number; end: number; text: string; translatedText: string }>;
+  }) {
+    const { buffer, originalName, mimetype, source, target, transcribedText, translatedText, userId, folderId, conversationId, diarized, segments } = params;
 
     const storedFile = await storageService.saveFile(buffer, originalName);
     const audioAsset = await translationRepository.saveAudioAsset({
@@ -93,18 +129,30 @@ export class TranscriptionService {
       output: translatedText,
       mode: 'audio',
       transcribed: transcribedText,
+      ...(segments && { segments }),
     }).catch((e) => {
       logger.error({ err: e }, 'Save history failed');
       return null;
     });
 
-    analyticsRepository.track({ eventType: 'transcription', userId, metadata: { source, target, folderId } }).catch((e) => logger.warn({ err: e }, 'Analytics track failed'));
+    analyticsRepository.track({
+      eventType: 'transcription',
+      userId,
+      metadata: { source, target, diarized, folderId },
+    }).catch((e) => logger.warn({ err: e }, 'Analytics track failed'));
 
     if (conversationId) {
       translationRepository.touchConversation(conversationId).catch((e) => logger.warn({ err: e }, 'Conversation touch failed'));
     }
 
-    return { transcribed: transcribedText, translated: translatedText, source, target, historyId: history?.id };
+    return {
+      transcribed: transcribedText,
+      translated: translatedText,
+      source,
+      target,
+      historyId: history?.id,
+      ...(segments && { segments }),
+    };
   }
 
   private async transcribeWithDiarization(
@@ -118,22 +166,17 @@ export class TranscriptionService {
     userId?: string,
     folderId?: string,
     dialect = 'Asante Twi',
-    conversationId?: string
+    conversationId?: string,
+    tier: TierName = 'FREE'
   ) {
-    const createDiarizedTranscription = openai.audio.transcriptions.create as unknown as (args: {
-      file: File;
-      model: string;
-      response_format: string;
-      chunking_strategy: string;
-    }) => Promise<unknown>;
-
+    const models = await modelConfigService.getModels();
     const transcript = await withRetry(() =>
-      createDiarizedTranscription({
+      openai.audio.transcriptions.create({
         file,
-        model: 'gpt-4o-transcribe-diarize',
+        model: models.OPENAI_TRANSCRIPTION_DIARIZE_MODEL,
         response_format: 'diarized_json',
         chunking_strategy: 'auto',
-      })
+      } as Parameters<typeof openai.audio.transcriptions.create>[0])
     );
 
     const data = transcript as unknown as DiarizedResponse;
@@ -144,74 +187,53 @@ export class TranscriptionService {
       return { transcribed: '', translated: '', source, target, segments: [] };
     }
 
-    const segmentsWithTranslation = await Promise.all(
-      segments.map(async (seg) => {
-        const translatedText = seg.text.trim()
-          ? (await translationService.translate(seg.text.trim(), target, source, 'Casual', userId, folderId, dialect, conversationId)).translated
-          : '';
-        return {
-          id: seg.id,
-          speaker: seg.speaker,
-          start: seg.start,
-          end: seg.end,
-          text: seg.text,
-          translatedText,
-        };
-      })
+    const textsToTranslate = segments.map((seg) => seg.text.trim());
+    const translations = await translationService.translateBatch(
+      textsToTranslate,
+      target,
+      source,
+      'Casual',
+      dialect,
+      tier
     );
+
+    const segmentsWithTranslation = segments.map((seg, i) => ({
+      id: seg.id,
+      speaker: seg.speaker,
+      start: seg.start,
+      end: seg.end,
+      text: seg.text,
+      translatedText: seg.text.trim() ? (translations[i] ?? '') : '',
+    }));
 
     const fullTranslated = segmentsWithTranslation
       .map((s) => s.translatedText)
       .filter(Boolean)
       .join(' ');
 
-    const storedFile = await storageService.saveFile(buffer, originalName);
-    const audioAsset = await translationRepository.saveAudioAsset({
-      userId,
+    return this.persistTranscriptionResult({
+      buffer,
       originalName,
-      storedName: storedFile.fileName,
-      mimeType: mimetype,
-      storagePath: storedFile.filePath,
-      sizeBytes: storedFile.sizeBytes,
-    });
-
-    const history = await translationRepository.saveHistory({
+      mimetype,
+      source,
+      target,
+      transcribedText,
+      translatedText: fullTranslated,
       userId,
       folderId,
       conversationId,
-      audioAssetId: audioAsset.id,
-      source,
-      target,
-      input: transcribedText,
-      output: fullTranslated,
-      mode: 'audio',
-      transcribed: transcribedText,
-      segments: segmentsWithTranslation.map((segment) => ({
-        speaker: segment.speaker,
-        start: segment.start,
-        end: segment.end,
-        text: segment.text,
-        translatedText: segment.translatedText,
+      diarized: true,
+      segments: segmentsWithTranslation.map((s) => ({
+        speaker: s.speaker,
+        start: s.start,
+        end: s.end,
+        text: s.text,
+        translatedText: s.translatedText,
       })),
-    }).catch((e) => {
-      logger.error({ err: e }, 'Save history failed');
-      return null;
-    });
-
-    analyticsRepository.track({ eventType: 'transcription', userId, metadata: { source, target, diarized: true, folderId } }).catch((e) => logger.warn({ err: e }, 'Analytics track failed'));
-
-    if (conversationId) {
-      translationRepository.touchConversation(conversationId).catch((e) => logger.warn({ err: e }, 'Conversation touch failed'));
-    }
-
-    return {
-      historyId: history?.id,
-      transcribed: transcribedText,
-      translated: fullTranslated,
-      source,
-      target,
+    }).then((result) => ({
+      ...result,
       segments: segmentsWithTranslation,
-    };
+    }));
   }
 }
 

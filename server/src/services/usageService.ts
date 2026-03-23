@@ -122,7 +122,6 @@ class UsageService {
         audioTrimming: limits.audioTrimming,
         apiAccess: limits.apiAccess,
         exportEnabled: limits.exportEnabled,
-        reviewQueueAccess: limits.reviewQueueAccess,
       },
     };
   }
@@ -130,7 +129,12 @@ class UsageService {
   private async getDbUsage(userId: string, date: string, action: UsageAction): Promise<number> {
     const record = await this.getDbRecord(userId, date);
     if (!record) return 0;
-    return (record as Record<string, unknown>)[ACTION_TO_DB_FIELD[action]] as number || 0;
+    const fieldMap = {
+      translate: record.charsTranslated,
+      transcribe: record.transcriptionCount,
+      tts: record.ttsCount,
+    } as const;
+    return fieldMap[action] || 0;
   }
 
   private async getDbRecord(userId: string, date: string) {

@@ -1,44 +1,41 @@
 import prisma from '../infrastructure/db';
 
 export class FolderRepository {
-  private getScopedUserId(userId?: string) {
-    return userId ?? null;
-  }
-
-  async listFolders(userId?: string) {
+  async listFolders(userId: string) {
     return prisma.folder.findMany({
-      where: { userId: this.getScopedUserId(userId) },
+      where: { userId },
       orderBy: { name: 'asc' },
     });
   }
 
-  async createFolder(name: string, userId?: string) {
-    const scopedUserId = this.getScopedUserId(userId);
+  async createFolder(name: string, userId: string) {
     return prisma.folder.upsert({
       where: {
         userId_name: {
-          userId: scopedUserId,
+          userId,
           name,
         },
       },
       update: {},
       create: {
         name,
-        userId: scopedUserId,
+        userId,
       },
     });
   }
 
-  async deleteFolder(id: string) {
-    return prisma.folder.delete({
-      where: { id },
-    });
+  async deleteFolder(id: string, userId: string) {
+    const folder = await prisma.folder.findUnique({ where: { id } });
+    if (!folder || folder.userId !== userId) {
+      throw Object.assign(new Error('Folder not found'), { statusCode: 404 });
+    }
+    return prisma.folder.delete({ where: { id } });
   }
 
-  async getFolder(id: string) {
-    return prisma.folder.findUnique({
-      where: { id },
-    });
+  async getFolder(id: string, userId: string) {
+    const folder = await prisma.folder.findUnique({ where: { id } });
+    if (!folder || folder.userId !== userId) return null;
+    return folder;
   }
 }
 

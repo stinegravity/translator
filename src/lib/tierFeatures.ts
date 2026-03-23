@@ -6,28 +6,24 @@ const FEATURE_FLAGS: Record<TierName, UsageData['features']> = {
     audioTrimming: false,
     apiAccess: false,
     exportEnabled: false,
-    reviewQueueAccess: false,
   },
   PRO: {
     conversationsEnabled: true,
     audioTrimming: true,
     apiAccess: false,
     exportEnabled: false,
-    reviewQueueAccess: false,
   },
   TEAM: {
     conversationsEnabled: true,
     audioTrimming: true,
     apiAccess: true,
     exportEnabled: true,
-    reviewQueueAccess: true,
   },
   ENTERPRISE: {
     conversationsEnabled: true,
     audioTrimming: true,
     apiAccess: true,
     exportEnabled: true,
-    reviewQueueAccess: true,
   },
 };
 

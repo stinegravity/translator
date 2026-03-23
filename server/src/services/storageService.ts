@@ -40,13 +40,21 @@ export class StorageService {
     };
   }
 
+  private assertSafePath(baseDir: string, fileName: string): string {
+    const resolved = path.resolve(baseDir, fileName);
+    if (!resolved.startsWith(baseDir + path.sep) && resolved !== baseDir) {
+      throw new Error('Invalid file path');
+    }
+    return resolved;
+  }
+
   async getFile(fileName: string): Promise<Buffer> {
-    const filePath = path.join(this.uploadDir, fileName);
+    const filePath = this.assertSafePath(this.uploadDir, fileName);
     return await fs.readFile(filePath);
   }
 
   getFilePath(fileName: string): string {
-    return path.join(this.uploadDir, fileName);
+    return this.assertSafePath(this.uploadDir, fileName);
   }
 
   async saveExportFile(buffer: Buffer, originalName: string): Promise<{
@@ -68,11 +76,12 @@ export class StorageService {
   }
 
   async getExportFile(fileName: string): Promise<Buffer> {
-    return await fs.readFile(path.join(this.exportDir, fileName));
+    const filePath = this.assertSafePath(this.exportDir, fileName);
+    return await fs.readFile(filePath);
   }
 
   getExportFilePath(fileName: string): string {
-    return path.join(this.exportDir, fileName);
+    return this.assertSafePath(this.exportDir, fileName);
   }
 }
 

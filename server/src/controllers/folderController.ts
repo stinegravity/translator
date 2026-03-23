@@ -36,7 +36,8 @@ export class FolderController {
   delete = async (req: Request, res: Response) => {
     try {
       const { id } = req.params;
-      await folderRepository.deleteFolder(id as string);
+      const user = this.getUser(req);
+      await folderRepository.deleteFolder(id as string, user.id);
       res.status(204).send();
     } catch (err) {
       logger.error({ err }, 'Delete folder error');

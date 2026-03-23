@@ -8,6 +8,7 @@ export interface UserProfile {
 
 export interface TranslationResult {
   id?: string;
+  inputText?: string;
   transcribed?: string;
   translated: string;
   source: string;
@@ -99,10 +100,27 @@ export interface ExportItem {
   } | null;
 }
 
+export interface AppFeedbackItem {
+  id: string;
+  overallRating: number;
+  performanceRating: number;
+  reliabilityRating: number;
+  easeRating: number;
+  notes?: string | null;
+  currentPath?: string | null;
+  createdAt: string;
+  user?: {
+    email: string;
+    name?: string | null;
+    tier: TierName;
+  } | null;
+}
+
 export interface UserSettings {
   preferredDirection?: Direction;
   preferredInputMode?: InputMode;
   diarizationEnabled?: boolean;
+  preferredVoice?: string;
 }
 
 export interface HealthStatus {
@@ -112,12 +130,18 @@ export interface HealthStatus {
 }
 
 export type TierName = 'FREE' | 'PRO' | 'TEAM' | 'ENTERPRISE';
+export type InternalRole = 'CUSTOMER' | 'OPS' | 'ADMIN';
+export type ReviewerAccessStatus = 'NONE' | 'PENDING' | 'APPROVED' | 'REJECTED';
 
 export interface AuthUser {
   id: string;
   email: string;
   name?: string;
   tier: TierName;
+  portalAccess?: boolean;
+  internalRole?: InternalRole;
+  reviewerAccess?: boolean;
+  reviewerAccessStatus?: ReviewerAccessStatus;
   emailVerified?: boolean;
 }
 
@@ -139,6 +163,38 @@ export interface UsageData {
     audioTrimming: boolean;
     apiAccess: boolean;
     exportEnabled: boolean;
-    reviewQueueAccess: boolean;
+  };
+}
+
+export interface InternalUserItem {
+  id: string;
+  email: string;
+  name?: string | null;
+  tier: TierName;
+  portalAccess: boolean;
+  internalRole: InternalRole;
+  createdAt: string;
+}
+
+export interface ReviewerApplicationItem {
+  id: string;
+  status: ReviewerAccessStatus;
+  organization?: string | null;
+  roleTitle?: string | null;
+  languages?: string | null;
+  credentials: string;
+  reviewUseCase?: string | null;
+  portfolioUrl?: string | null;
+  notes?: string | null;
+  reviewerDecisionNotes?: string | null;
+  createdAt: string;
+  reviewedAt?: string | null;
+  user: {
+    id: string;
+    email: string;
+    name?: string | null;
+    tier: TierName;
+    reviewerAccess: boolean;
+    reviewerAccessStatus: ReviewerAccessStatus;
   };
 }

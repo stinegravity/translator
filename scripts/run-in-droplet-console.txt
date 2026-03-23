@@ -1,10 +1,18 @@
-# Copy everything below this line and paste into Droplet Console (as root)
+# SSH & keyerease setup for droplet console (run as root)
 # ============================================================
+# 1. On your Mac: cat ~/.ssh/clubexpress_droplet.pub
+# 2. Replace YOUR_PUBLIC_KEY below with that output (paste one key per echo)
+# 3. Run each block separately in Droplet Console to avoid paste issues
 
+# Root SSH
+mkdir -p /root/.ssh
+echo "YOUR_PUBLIC_KEY" >> /root/.ssh/authorized_keys
+chmod 700 /root/.ssh
+chmod 600 /root/.ssh/authorized_keys
+
+# Keyerease SSH + app dir
 mkdir -p /home/keyerease/.ssh
-echo "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHKD7sBAyayZ9kgpVr1SiOIfyxjfl5D4bZcFyfcDVqgn clubexpress-droplet-20251201" > /home/keyerease/.ssh/authorized_keys
-echo "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFw+bA1AkcjIDlXaIuRC6zHksZbBgPH9fAIsDLD3gv7i gravitidev@clubexpress-test-server-20251201" >> /home/keyerease/.ssh/authorized_keys
-echo "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHZxMn2I0Ijh1jQVbyf94WSFzWtY08YyaxenAyLKMLDi biney.augustine01@gmail.com" >> /home/keyerease/.ssh/authorized_keys
+echo "YOUR_PUBLIC_KEY" > /home/keyerease/.ssh/authorized_keys
 chmod 700 /home/keyerease/.ssh
 chmod 600 /home/keyerease/.ssh/authorized_keys
 chown -R keyerease:keyerease /home/keyerease

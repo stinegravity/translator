@@ -1,7 +1,12 @@
 import { AnimatePresence, motion } from 'framer-motion';
-import { Download, ExternalLink, FileText, Subtitles, X } from 'lucide-react';
+import { Download, ExternalLink, FileText, LogOut, Subtitles, X } from 'lucide-react';
+import { useFocusTrap } from '../hooks/useFocusTrap';
 import { UsageDashboard } from './UsageDashboard';
+import { AppFeedbackPanel } from './AppFeedbackPanel';
+import { CustomSelect } from './CustomSelect';
 import type { AuthUser, ExportItem, UsageData } from '../types';
+
+const PORTAL_URL = import.meta.env.VITE_PORTAL_URL || 'http://localhost:5174';
 
 interface SettingsPanelProps {
   show: boolean;
@@ -15,6 +20,17 @@ interface SettingsPanelProps {
   settingsError: string | null;
   onDownloadExport: (exportId: string) => Promise<void>;
   onRefreshExports: () => Promise<void>;
+  onSubmitAppFeedback: (data: {
+    overallRating: number;
+    performanceRating: number;
+    reliabilityRating: number;
+    easeRating: number;
+    notes?: string;
+    currentPath?: string;
+  }) => Promise<void>;
+  voice: string;
+  onVoiceChange: (voice: string) => void;
+  onLogout: () => Promise<void>;
   onClose: () => void;
 }
 
@@ -42,8 +58,13 @@ export function SettingsPanel({
   settingsError,
   onDownloadExport,
   onRefreshExports,
+  onSubmitAppFeedback,
+  voice,
+  onVoiceChange,
+  onLogout,
   onClose,
 }: SettingsPanelProps) {
+  const focusTrapRef = useFocusTrap(show);
   return (
     <AnimatePresence>
       {show ? (
@@ -51,6 +72,9 @@ export function SettingsPanel({
           <motion.div className="history-backdrop" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose} />
           <motion.aside
             className="settings-sidebar"
+            ref={focusTrapRef}
+            role="dialog"
+            aria-label="Settings panel"
             initial={{ x: '100%' }}
             animate={{ x: 0 }}
             exit={{ x: '100%' }}
@@ -77,27 +101,52 @@ export function SettingsPanel({
                       <div style={{ color: 'var(--color-text)', fontSize: '0.95rem' }}>{user.name}</div>
                     </div>
                   )}
+                  <button type="button" className="settings-mini-btn" onClick={() => void onLogout()}>
+                    <LogOut size={14} />
+                    Sign out
+                  </button>
                 </section>
               )}
 
               {user && <UsageDashboard usage={usage} tier={user.tier} />}
 
-              <section className="settings-section">
-                <div className="settings-section-title">Operations</div>
-                <a href="/portal" className="portal-link">
-                  <ExternalLink size={16} />
-                  Open portal dashboard
-                </a>
-                <p className="settings-help">Operational visibility has been moved out of the translator UI into a separate portal dashboard.</p>
-              </section>
+              {user?.portalAccess && (
+                <section className="settings-section">
+                  <div className="settings-section-title">Operations</div>
+                  <a href={PORTAL_URL} className="portal-link" target="_blank" rel="noreferrer">
+                    <ExternalLink size={16} />
+                    Open portal dashboard
+                  </a>
+                  <p className="settings-help">Operational visibility and review tooling in the separate portal app.</p>
+                </section>
+              )}
 
               <section className="settings-section">
-                <div className="settings-section-title">Persistence</div>
+                <div className="settings-section-title">Voice Preference</div>
+                <div className="settings-field" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '0.75rem' }}>
+                  <span style={{ fontSize: '0.875rem', color: 'var(--color-muted)' }}>Choose the AI voice for translations</span>
+                  <CustomSelect
+                    label="Voice"
+                    value={voice}
+                    onChange={onVoiceChange}
+                    layout="horizontal"
+                    options={[
+                      { value: 'nova', label: 'Nova (Harmonious)' },
+                      { value: 'alloy', label: 'Alloy (Neutral)' },
+                      { value: 'echo', label: 'Echo (Confident)' },
+                      { value: 'fable', label: 'Fable (Narrative)' },
+                      { value: 'onyx', label: 'Onyx (Deep)' },
+                      { value: 'shimmer', label: 'Shimmer (Bright)' },
+                    ]}
+                  />
+                </div>
                 <p className="settings-help">
-                  {settingsSaving ? 'Saving your preferences...' : 'Preferences save automatically when direction, mode, or diarization changes.'}
+                  {settingsSaving ? 'Saving your preferences...' : 'Preferences save automatically when your voice or translation settings change.'}
                 </p>
                 {settingsError ? <p className="settings-error">{settingsError}</p> : null}
               </section>
+
+              <AppFeedbackPanel onSubmit={onSubmitAppFeedback} />
 
               {exportEnabled ? (
                 <section className="settings-section">

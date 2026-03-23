@@ -54,9 +54,16 @@ export function useConversations(folderId?: string, enabled = true, autoFetch = 
   }, [folderId]);
 
   const renameConversation = useCallback(async (id: string, title: string) => {
-    const data = await api.conversations.update(id, title);
+    const data = await api.conversations.update(id, { title });
     setItems((current) => current.map((item) => (item.id === id ? { ...item, ...data.conversation } : item)));
     setActiveConversation((current) => (current && current.id === id ? { ...current, title: data.conversation.title } : current));
+    return data.conversation;
+  }, []);
+
+  const moveConversationToFolder = useCallback(async (id: string, folderId: string | null) => {
+    const data = await api.conversations.update(id, { folderId });
+    setItems((current) => current.map((item) => (item.id === id ? { ...item, ...data.conversation } : item)));
+    setActiveConversation((current) => (current && current.id === id ? { ...current, folderId: data.conversation.folder?.id || null } : current));
     return data.conversation;
   }, []);
 
@@ -96,6 +103,7 @@ export function useConversations(folderId?: string, enabled = true, autoFetch = 
     loadConversation,
     createConversation,
     renameConversation,
+    moveConversationToFolder,
     deleteConversation,
     clearActiveConversation,
   };

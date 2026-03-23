@@ -9,15 +9,20 @@ lerna-debug.log*
 
 node_modules
 dist
+dist-portal
 dist-ssr
 *.local
 
-# Env and secrets
+# Env and secrets (never commit keys or passwords)
 .env
 .env.local
 .env.*.local
+.env.production
+.env.staging
+.env.kyerease-db
 *.pem
 secrets/
+
 
 # Editor directories and files
 .vscode/*

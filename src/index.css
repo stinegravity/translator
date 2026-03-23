@@ -33,7 +33,34 @@
   margin: 0;
   padding: 0;
   box-sizing: border-box;
-  outline: none !important;
+}
+
+/* Only hide outlines for mouse users, preserve for keyboard */
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-highlight);
+  outline-offset: 2px;
+}
+
+.skip-to-content {
+  position: absolute;
+  top: -100%;
+  left: 1rem;
+  z-index: 9999;
+  padding: 0.75rem 1.5rem;
+  background: var(--color-highlight);
+  color: white;
+  border-radius: 0 0 8px 8px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: top 0.2s;
+}
+
+.skip-to-content:focus {
+  top: 0;
 }
 
 body {
@@ -117,4 +144,96 @@ body::after {
 ::selection {
   background: rgba(59, 130, 246, 0.3);
   color: #fff;
+}
+
+.app-error-layout {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  text-align: center;
+}
+
+.app-error-content {
+  width: min(560px, 100%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.9rem;
+}
+
+.app-error-content h1 {
+  margin: 0;
+  color: var(--color-text);
+}
+
+.app-error-content p {
+  margin: 0;
+  max-width: 420px;
+  color: var(--color-muted);
+}
+
+.app-error-actions {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  margin-top: 0.35rem;
+}
+
+.app-error-reload-btn {
+  background: transparent;
+  border: none;
+  color: var(--color-highlight);
+  font-size: 0.95rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 0.5rem 1rem;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.app-error-reload-btn:hover {
+  opacity: 0.8;
+}
+
+.not-found-layout {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  text-align: center;
+}
+
+.not-found-content {
+  width: min(560px, 100%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.9rem;
+}
+
+.not-found-content h1 {
+  margin: 0;
+  color: var(--color-text);
+}
+
+.not-found-content p {
+  margin: 0;
+  max-width: 420px;
+  color: var(--color-muted);
+}
+
+.not-found-actions {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  margin-top: 0.35rem;
+}
+
+.not-found-actions .portal-refresh {
+  min-width: 180px;
+  justify-content: center;
 }

@@ -1,0 +1,43 @@
+# Optional: Dedicated PostgreSQL + Redis for Kyerease (staging/production)
+# Use if you want to separate Kyerease from ClubExpress Docker services.
+#
+# Start: docker compose -f docker-compose.kyerease-db.yml up -d
+# Stop:  docker compose -f docker-compose.kyerease-db.yml down
+#
+# Then set in .env:
+#   DATABASE_URL=postgresql://kyerease:${POSTGRES_PASSWORD}@127.0.0.1:5434/twi_translator
+#   REDIS_URL=redis://:${REDIS_PASSWORD}@127.0.0.1:6380
+
+services:
+  kyerease-postgres:
+    image: postgres:16-alpine
+    container_name: kyerease-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-kyerease}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in your environment}
+      POSTGRES_DB: ${POSTGRES_DB:-twi_translator}
+    ports:
+      - "127.0.0.1:5434:5432"
+    volumes:
+      - kyerease_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-kyerease}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  kyerease-redis:
+    image: redis:7-alpine
+    container_name: kyerease-redis
+    command: >
+      sh -c '[ -n "$$REDIS_PASSWORD" ] && exec redis-server --requirepass "$$REDIS_PASSWORD" || exec redis-server'
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+    ports:
+      - "127.0.0.1:6380:6379"
+    volumes:
+      - kyerease_redis_data:/data
+
+volumes:
+  kyerease_postgres_data:
+  kyerease_redis_data:
