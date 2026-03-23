@@ -6,10 +6,7 @@ const MAX_FILE_SIZE = 25 * 1024 * 1024; // 25 MB
 // Magic byte signatures for common audio formats
 const AUDIO_SIGNATURES: Array<{ prefix: number[]; offset?: number }> = [
   { prefix: [0x52, 0x49, 0x46, 0x46] },            // RIFF (WAV)
-  { prefix: [0x49, 0x44, 0x33] },                   // ID3 (MP3)
-  { prefix: [0xFF, 0xFB] },                          // MP3 frame sync
-  { prefix: [0xFF, 0xF3] },                          // MP3 frame sync
-  { prefix: [0xFF, 0xF2] },                          // MP3 frame sync
+  { prefix: [0x49, 0x44, 0x33] },                   // ID3 (MP3 with ID3 tag)
   { prefix: [0x4F, 0x67, 0x67, 0x53] },             // OGG
   { prefix: [0x66, 0x4C, 0x61, 0x43] },             // FLAC
   { prefix: [0x1A, 0x45, 0xDF, 0xA3] },             // WebM/Matroska
@@ -24,6 +21,10 @@ function hasValidAudioSignature(buffer: Buffer): boolean {
     const match = sig.prefix.every((byte, i) => buffer[offset + i] === byte);
     if (match) return true;
   }
+
+  // MP3 frame sync: 0xFF followed by byte with top 3 bits set (0xE0 mask)
+  // Covers MPEG1/2/2.5 all layers: 0xFB, 0xFA, 0xF3, 0xF2, 0xE3, 0xE2, etc.
+  if (buffer[0] === 0xFF && (buffer[1] & 0xE0) === 0xE0) return true;
 
   // MP4/M4A: check for 'ftyp' at byte 4
   if (buffer.length >= 8 && buffer.toString('ascii', 4, 8) === 'ftyp') return true;
