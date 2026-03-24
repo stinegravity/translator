@@ -171,7 +171,7 @@ export class TranslationService {
 
 
   private async translateWithAI(text: string, target: string, source: string | undefined, context: string, dialect = 'Asante Twi', model = 'gpt-4o'): Promise<string> {
-    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY, timeout: 60_000 });
     
     const targetProfile = languages[target];
     const targetName = getLanguageName(target);
@@ -214,7 +214,7 @@ export class TranslationService {
     dialect: string,
     model = 'gpt-4o'
   ): Promise<string[]> {
-    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY, timeout: 60_000 });
     const targetProfile = languages[target];
     const targetName = getLanguageName(target);
 

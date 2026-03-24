@@ -16,6 +16,8 @@ const OWNER_TTL = 3600;
 const MAX_JOB_ATTEMPTS = 2;
 /** Base delay for exponential backoff on retries (ms) */
 const RETRY_BACKOFF_DELAY = 5000;
+/** Max time a single job can run before being marked as stalled (ms) — 5 minutes */
+const JOB_TIMEOUT_MS = 5 * 60 * 1000;
 
 export interface TranscriptionJobData {
   type: 'audio';
@@ -67,6 +69,7 @@ export const transcriptionQueue = new Queue<TranscriptionJobPayload>(queueName, 
     removeOnFail: { age: 86400 },
     attempts: MAX_JOB_ATTEMPTS,
     backoff: { type: 'exponential', delay: RETRY_BACKOFF_DELAY },
+    timeout: JOB_TIMEOUT_MS,
   },
 });
 
@@ -85,6 +88,7 @@ async function processAudioJob(data: TranscriptionJobData): Promise<Transcriptio
   }
   try {
     const buffer = await fs.readFile(tempPath);
+    logger.info({ originalName: data.originalName, sizeBytes: buffer.length, direction: data.direction }, 'Starting Whisper transcription');
     const result = await transcriptionService.transcribeAndTranslate(
       buffer,
       data.originalName,
@@ -97,6 +101,7 @@ async function processAudioJob(data: TranscriptionJobData): Promise<Transcriptio
       data.conversationId,
       data.tier
     );
+    logger.info({ originalName: data.originalName, transcribedLength: result.transcribed.length }, 'Transcription completed');
     await usageService.recordUsage(data.userId, 'transcribe', 1);
     return {
       status: 'completed',
@@ -106,6 +111,12 @@ async function processAudioJob(data: TranscriptionJobData): Promise<Transcriptio
       target: result.target,
       historyId: result.historyId,
       segments: result.segments,
+    };
+  } catch (err) {
+    logger.error({ err, originalName: data.originalName }, 'Audio transcription failed');
+    return {
+      status: 'failed' as const,
+      error: err instanceof Error ? err.message : 'Transcription failed',
     };
   } finally {
     try {

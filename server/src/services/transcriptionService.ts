@@ -38,7 +38,7 @@ export class TranscriptionService {
     const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) throw new Error('OPENAI_API_KEY is not set');
 
-    const openai = new OpenAI({ apiKey });
+    const openai = new OpenAI({ apiKey, timeout: 120_000 });
     const file = await toFile(buffer, originalName, { type: mimetype });
     const [source, target] = direction.includes('-') ? direction.split('-') : ['en', 'tw'];
 

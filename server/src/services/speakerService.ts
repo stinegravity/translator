@@ -32,7 +32,7 @@ export class SpeakerService {
     if (!apiKey) throw new Error('OPENAI_API_KEY is not set');
 
     const models = await modelConfigService.getModels();
-    const openai = new OpenAI({ apiKey });
+    const openai = new OpenAI({ apiKey, timeout: 60_000 });
     const mp3 = await withRetry(() =>
       openai.audio.speech.create({
         model: models.OPENAI_TTS_MODEL,
